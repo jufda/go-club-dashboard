@@ -1,12 +1,14 @@
 #######################
 # Import libraries
 #######################
-import streamlit as st
 import altair as alt
+from datetime import datetime, timedelta
+import os
 import pandas as pd
 from pandas import to_datetime
+import requests
+import streamlit as st
 import warnings
-
 
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
@@ -24,6 +26,14 @@ alt.theme.enable("dark")
 #######################
 # Load data
 #######################
+def download_file(url, local_path):
+    """Download a file from a URL and save it locally."""
+    response = requests.get(url)
+    response.raise_for_status()  # Raise an error for bad responses
+    with open(local_path, 'wb') as file:
+        file.write(response.content)
+
+# 1st season
 try:
     df1 = pd.read_excel(
         io='data/goseason1.xlsx',
@@ -42,6 +52,7 @@ except Exception as e:
         skiprows=3
     )
 
+# 2nd season
 try:
     df2 = pd.read_excel(
         io='data/goseason2.xlsx',
@@ -60,16 +71,36 @@ except Exception as e:
         skiprows=3
     )
 
+# current season
+local_file = "data/latest-season.xlsx"
+online_file_url = "https://docs.google.com/spreadsheets/d/1ktWkll-JubPHH3CSbcqO22WaJci2yAaQSK7-UKG8do8/export?format=xlsx"
+
+if os.path.exists(local_file):
+    try:
+        last_modified_time = datetime.fromtimestamp(os.path.getmtime(local_file))
+        current_time = datetime.now()
+
+        if current_time - last_modified_time > timedelta(days=3):
+            print("Local file is older than 3 days. Downloading the latest version...")
+            download_file(online_file_url, local_file)
+        # else:
+            # print("Local file seems fresh, using it.")
+    except Exception as e:
+        print(f"Error checking online file: {e}. Using the local file.")
+else:
+    print("Local file not found. Downloading the latest version...")
+    download_file(online_file_url, local_file)
+
 try:
     df3 = pd.read_excel(
-        io='https://docs.google.com/spreadsheets/d/1ktWkll-JubPHH3CSbcqO22WaJci2yAaQSK7-UKG8do8/export?format=xlsx',
+        io="data/latest-season.xlsx",
         engine="openpyxl",
         sheet_name="Pelitulokset",
         usecols="B:F,O,P,V",
         skiprows=3
     )
 except Exception as e:
-    st.warning(f"Failed to load data from online source for Season 3. Using local file. Error: {e}")
+    st.warning(f"Failed to load data from online source for Season 3. Using local backup file. Error: {e}")
     df3 = pd.read_excel(
         io="data/goseason3.xlsx",
         engine="openpyxl",
@@ -77,7 +108,6 @@ except Exception as e:
         usecols="B:F,O,P,V",
         skiprows=3
     )
-
 
 #######################
 # Clean data
@@ -180,7 +210,8 @@ def make_expected_vs_actual_chart():
     chart = alt.Chart(win_data).mark_bar().encode(
         x=alt.X('Type', title=''),
         y=alt.Y('Count', title=''),
-        color=alt.Color('Type', legend=None)
+        color=alt.Color('Type', legend=None),
+        tooltip=alt.Tooltip('Count', format='.2f')
     ).properties(width=150, height=300)
 
     return chart
@@ -188,13 +219,15 @@ def make_expected_vs_actual_chart():
 
 # Player performance timeline with colourful opponents
 def make_performance_chart(input_df, input_player):
-    # If no player is selected, show data for all players by adding the lost player to list of opponents
     if input_player == "ALL PLAYERS":
-        input_df['Opponent'] = input_df.apply(
-            lambda row: row['Pelaaja heikompi'] if row['Pelaaja vahvempi'] == row['Voittaja'] else row[
-                'Pelaaja vahvempi'],
-            axis=1
+        # Include both players in each game
+        input_df = input_df.melt(
+            id_vars=['Päivämäärä'],
+            value_vars=['Pelaaja vahvempi', 'Pelaaja heikompi'],
+            var_name='Role',
+            value_name='Player'
         )
+        grouped_df = input_df.groupby(['Päivämäärä', 'Player']).size().reset_index(name='Game Count')
     else:
         # Filter data for the selected player
         input_df = input_df[(input_df['Pelaaja vahvempi'] == input_player) | (input_df['Pelaaja heikompi'] == input_player)]
@@ -205,20 +238,124 @@ def make_performance_chart(input_df, input_player):
             axis=1
         )
 
-    # Group by date and opponent, then count games
-    grouped_df = input_df.groupby(['Päivämäärä', 'Opponent']).size().reset_index(name='Game Count')
+        # Group by date and opponent, then count games
+        grouped_df = input_df.groupby(['Päivämäärä', 'Opponent']).size().reset_index(name='Game Count')
 
     # Create a bar chart
     chart = alt.Chart(grouped_df).mark_bar().encode(
         x=alt.X('Päivämäärä:T', title='Date'),
-        y=alt.Y('Game Count:Q', title='Number of Games'),
-        color=alt.Color('Opponent:N', title='Opponent'),
-        tooltip=['Päivämäärä:T', 'Opponent:N', 'Game Count:Q']
+        y=alt.Y('Game Count:Q', title='Number of players'),
+        color=alt.Color('Player:N' if input_player == "ALL PLAYERS" else 'Opponent:N', title='Player'),
+        tooltip=['Päivämäärä:T', 'Player:N' if input_player == "ALL PLAYERS" else 'Opponent:N', 'Game Count:Q']
     ).properties(
         width=800,
-        height=300
+        height=300,
+        title=f"{input_player}'s club activity timeline"
     ).interactive()  # Enable zoom and pan
 
+    return chart
+
+
+# Rating timeline chart
+def make_rating_timeline_chart(input_df, input_player):
+    if input_player == "ALL PLAYERS":
+        return None
+    
+    # Create a list to store rating data
+    rating_data = []
+    
+    # Get games where player was stronger
+    stronger_games = input_df[input_df['Pelaaja vahvempi'] == input_player]
+    for _, row in stronger_games.iterrows():
+        rating_data.append({
+            'Date': row['Päivämäärä'],
+            'Rating': row['Rating vahv']
+        })
+    
+    # Get games where player was weaker
+    weaker_games = input_df[input_df['Pelaaja heikompi'] == input_player]
+    for _, row in weaker_games.iterrows():
+        rating_data.append({
+            'Date': row['Päivämäärä'],
+            'Rating': row['Rating heik']
+        })
+    
+    # Convert to DataFrame and sort by date
+    if not rating_data:
+        return None
+        
+    rating_df = pd.DataFrame(rating_data)
+    rating_df = rating_df.sort_values('Date')
+    
+    # Calculate min and max ratings for the y-axis domain
+    min_rating = rating_df['Rating'].min()
+    max_rating = rating_df['Rating'].max()
+    # Add some padding to the range
+    rating_padding = (max_rating - min_rating) * 0.1
+    y_min = min_rating - rating_padding
+    y_max = max_rating + rating_padding
+    
+    # Create rating ticks for both rating and rank scales
+    rating_ticks = list(range(int(y_min // 100) * 100, int(y_max // 100 + 1) * 100, 100))
+    
+    # Create a DataFrame for the rank axis with pre-calculated ranks
+    rank_df = pd.DataFrame({'value': rating_ticks})
+    rank_df['rank'] = rank_df['value'].apply(lambda x: 
+        f"{int((x - 2000) // 100)}d" if x >= 2100 else f"{int((2100 - x) // 100)}k"
+    )
+    
+    # Create the base chart with rating on left y-axis
+    base = alt.Chart(rating_df).encode(
+        x=alt.X('Date:T', title='Date')
+    )
+    
+    # Create the line and points
+    line = base.mark_line().encode(
+        y=alt.Y('Rating:Q',
+                scale=alt.Scale(domain=[y_min, y_max]),
+                axis=alt.Axis(
+                    title='Rating',
+                    # tickCount=len(rating_ticks),
+                    values=rating_ticks,
+                    grid=True
+                ))
+    )
+    
+    points = base.mark_point(size=50).encode(
+        y=alt.Y('Rating:Q',
+                scale=alt.Scale(domain=[y_min, y_max])),
+        tooltip=[alt.Tooltip('Date:T', title='Date'),
+             alt.Tooltip('Rating:Q', title='Rating', format=".1f")]
+    )
+
+    # Create the rank axis on the right using the pre-calculated ranks
+    rank_axis = alt.Chart(rank_df).mark_text(
+        align='right',
+        baseline='middle',
+        dx=15,  # Offset from the right edge
+        fontWeight='bold'
+    ).encode(
+        y=alt.Y('value:Q',
+                scale=alt.Scale(domain=[y_min, y_max]),
+                axis=alt.Axis(
+                    orient='right',
+                    title='Rank',
+                    values=rating_ticks,
+                    grid=False
+                )),
+        text='rank:N',
+        color=alt.Color('rank:N', scale=alt.Scale(scheme='category10'), legend=None)
+    )
+    
+    # Create a layered chart
+    chart = alt.layer(line, points, rank_axis).resolve_scale(
+        y='independent'
+    ).properties(
+        width=800,
+        height=300,
+        title=f"{input_player}'s rating timeline"
+    ).interactive()
+    
     return chart
 
 
@@ -228,9 +365,16 @@ def make_performance_chart(input_df, input_player):
 col = st.columns((8, 1.5, 1.5), gap='medium')
 
 with col[0]:
-    st.markdown("""#### Player's club activity timeline""")
+    # st.markdown("""#### Player's club activity timeline""")
     performance_chart = make_performance_chart(filtered_df, selected_player)
     st.altair_chart(performance_chart, use_container_width=True)
+    
+    # Add rating timeline chart if a specific player is selected
+    if selected_player != "ALL PLAYERS":
+        # st.markdown("""""")
+        rating_chart = make_rating_timeline_chart(filtered_df, selected_player)
+        if rating_chart:
+            st.altair_chart(rating_chart, use_container_width=True)
 
 with col[1]:
     st.markdown('#### Games')
@@ -247,8 +391,9 @@ with col[2]:
 #######################
 with st.container():
     st.markdown('#### Game details')
+    sorted_df = filtered_df.sort_values(by="Päivämäärä", ascending=False)
     st.dataframe(
-        filtered_df,
+        sorted_df,
         hide_index=False,
         column_order=("Päivämäärä", "Weekday", "Pelaaja vahvempi", "Vahvemman voiton todennäköisyys", "Pelaaja heikompi",
                       "Rating vahv", "Tasoituskivet", "Rating heik", "Voittaja"),
@@ -290,6 +435,13 @@ with st.container():
 
     with st.expander('Update history', expanded=False):
         st.write("""
+#### Updates 23.5.2025:
+1. **Rating graph**: shows player's rating over time
+2. **Download optimization**: checks if the local file is older than 3 days before downloading a new version.
+3. **Included all players to timeline**: not just half of them.
+4. **Ordered game details**: newest first.
+5. **Decimal formatting**: for expected wins and rating.
+
 #### Updates 15.5.2025:
 1. **Timeline update**: shows opponents
 2. **Added expected wins**: and comparison to actual wins
@@ -309,15 +461,13 @@ with st.container():
 5. **Recent games**: Displays the 10 most recent games involving the selected player.
 
 #### Next steps in the further development:
-1. **More informative visualizations**: handicap analysis, actual wins vs expected wins
-2. **Translation**: Offer both Finnish and English
-4. **Interactive elements**: Like hover tooltips, click interactions, etc.
-5. **Fix bugs**: Error while selecting date rang
-6. **Better layout**: Improve the layout and design of the dashboard for better user experience.
-7. **Visualize rating**: Add a visualization of player ratings over time.
-8. **Deploy**: Create github.io page for the dashboard or share through streamlit
-9. **Accessibility testing**: Colour-blindness, contrast, alt-texts, keyboard navigation.
-10. **Head2head win% estimations with confidence intervals**: Calculate the error margins based on the amount of games so far.
-11. **Visual look**: Include go art, board, stones and cups to create a fitting theme.
-12. **Updating to web page**: extending 
+- **Select opponent**: to allow comparison between two players.
+- **Head2head**: win%, games played against each other. y=games x=player 
+- **Estimations with confidence intervals**: Calculate the error margins based on the amount of games so far.
+- **Handicap analysis**: How players perform with handicap stones.
+- **Translation**: Offer both Finnish and English
+- **Fix bugs**: Error while selecting date range
+- **All players'** timeline: colour based on the amount of games
+- **Accessibility testing**: Colour-blindness, contrast, alt-texts, keyboard navigation.
+- **Visual look**: Include go art, board, stones and cups to create a fitting theme.
 """)
