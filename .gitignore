@@ -55,5 +55,6 @@ ENV/
 env.bak/
 venv.bak/
 
-# Pycharm
+# Python
 .idea/
+__pycache__/
