@@ -13,6 +13,8 @@ from charts import (
     make_rating_timeline_chart,
     make_win_loss_chart,
     make_expected_vs_actual_chart,
+    make_head_to_head_win_loss_chart,
+    make_head_to_head_expected_vs_actual_chart,
 )
 
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
@@ -210,14 +212,24 @@ with col[0]:
             st.altair_chart(rating_chart, use_container_width=True)
 
 with col[1]:
-    st.markdown('#### Games')
+    st.markdown('#### All games')
     win_loss_chart = make_win_loss_chart(filtered_df, selected_player)
     st.altair_chart(win_loss_chart, use_container_width=True)
+    
+    # Add head-to-head win/loss chart if an opponent is selected
+    if selected_player != "ALL PLAYERS" and selected_opponent != "NONE":
+        h2h_win_loss_chart = make_head_to_head_win_loss_chart(filtered_df, selected_player, selected_opponent)
+        st.altair_chart(h2h_win_loss_chart, use_container_width=True)
 
 with col[2]:
-    st.markdown('#### Wins')
+    st.markdown('#### All wins')
     expected_vs_actual_chart = make_expected_vs_actual_chart(filtered_df, selected_player)
     st.altair_chart(expected_vs_actual_chart, use_container_width=True)
+    
+    # Add head-to-head expected vs actual wins chart if an opponent is selected
+    if selected_player != "ALL PLAYERS" and selected_opponent != "NONE":
+        h2h_expected_vs_actual_chart = make_head_to_head_expected_vs_actual_chart(filtered_df, selected_player, selected_opponent)
+        st.altair_chart(h2h_expected_vs_actual_chart, use_container_width=True)
 
 #######################
 # Dashboard Main
@@ -272,6 +284,7 @@ with st.container():
 1. **Opponent selection**: Shows only the games between players.
 2. **Performance optimization**: Caches the data.
 3. **Face-to-face comparison**: Compare the rating timelines of two players.
+4. **Face-to-face wins**: Bar charts for head-to-head comparison.
         
 #### Updates 23.5.2025:
 1. **Rating graph**: shows player's rating over time

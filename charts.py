@@ -19,9 +19,10 @@ def make_win_loss_chart(input_df, input_player):
         'Count': [wins, losses]
     })
     chart = alt.Chart(data).mark_bar().encode(
-        x=alt.X('Result', title=''),
+        x=alt.X('Result', title='', sort=['Wins', 'Losses']),
         y=alt.Y('Count', title=''),
-        color = alt.Color('Result', legend=None)
+        color=alt.Color('Result', legend=None,
+                        scale=alt.Scale(domain=['Wins', 'Losses'], range=['#00FFD0', '#FF6900']))
     ).properties(width=150, height=300)
     return chart
 
@@ -38,15 +39,16 @@ def make_expected_vs_actual_chart(filtered_df, selected_player):
         actual_wins = filtered_df[filtered_df['Voittaja'] == selected_player].shape[0]
 
     win_data = pd.DataFrame({
-        'Type': ['Expected', 'Actual    '],
+        'Type': ['Expected', 'Actual'],
         'Count': [expected_wins, actual_wins]
     })
 
     chart = alt.Chart(win_data).mark_bar().encode(
         x=alt.X('Type', title=''),
         y=alt.Y('Count', title=''),
-        color=alt.Color('Type', legend=None),
-        tooltip=alt.Tooltip('Count', format='.2f')
+        color=alt.Color('Type', legend=None,
+                        scale=alt.Scale(domain=['Actual', 'Expected'], range=['#00FFD0', '#00BBFF'])),
+    tooltip=alt.Tooltip('Count', format='.1f')
     ).properties(width=150, height=300)
 
     return chart
@@ -55,7 +57,7 @@ def make_expected_vs_actual_chart(filtered_df, selected_player):
 # Activity timeline
 #######################
 def make_performance_chart(input_df, input_player):
-    """Create a activity timeline chart for a player."""
+    """Create an activity timeline chart for a player."""
     if input_player == "ALL PLAYERS":
         input_df = input_df.melt(
             id_vars=['Päivämäärä'],
@@ -165,6 +167,7 @@ def make_rating_timeline_chart(input_df, input_player, selected_opponent="NONE")
     base = alt.Chart(combined_rating_df).encode(
         x=alt.X('Date:T', title='Date')
     )
+    
     line = base.mark_line().encode(
         y=alt.Y('Rating:Q',
                 scale=alt.Scale(domain=[y_min, y_max], nice=False),
@@ -220,5 +223,75 @@ def make_rating_timeline_chart(input_df, input_player, selected_opponent="NONE")
         height=300,
         title=chart_title
     ).interactive()
+    
+    return chart
+
+#######################
+# Head-to-head win/loss chart
+#######################
+def make_head_to_head_win_loss_chart(input_df, player1, player2):
+    """Create a win/loss ratio chart for head-to-head games between two players."""
+    # Filter for games between the two players
+    h2h_df = input_df[
+        ((input_df['Pelaaja vahvempi'] == player1) & (input_df['Pelaaja heikompi'] == player2)) |
+        ((input_df['Pelaaja vahvempi'] == player2) & (input_df['Pelaaja heikompi'] == player1))
+    ]
+    
+    wins = h2h_df[h2h_df['Voittaja'] == player1].shape[0]
+    losses = h2h_df.shape[0] - wins
+    
+    data = pd.DataFrame({
+        'Result': ['Wins', 'Losses'],
+        'Count': [wins, losses]
+    })
+    
+    chart = alt.Chart(data).mark_bar().encode(
+        x=alt.X('Result', title='', sort=['Wins', 'Losses']),
+        y=alt.Y('Count', title=''),
+        color=alt.Color('Result', legend=None,
+                        scale=alt.Scale(domain=['Wins', 'Losses'], range=['#00FFD0', '#FF6900']))
+    ).properties(
+        width=150,
+        height=300,
+        title=f"Games vs {player2}"
+    )
+    return chart
+
+#######################
+# Head-to-head expected vs actual wins
+#######################
+def make_head_to_head_expected_vs_actual_chart(input_df, player1, player2):
+    """Create a chart comparing expected vs actual wins for head-to-head games."""
+    # Filter for games between the two players
+    h2h_df = input_df[
+        ((input_df['Pelaaja vahvempi'] == player1) & (input_df['Pelaaja heikompi'] == player2)) |
+        ((input_df['Pelaaja vahvempi'] == player2) & (input_df['Pelaaja heikompi'] == player1))
+    ]
+    
+    # Calculate expected wins for player1
+    expected_wins = h2h_df.apply(
+        lambda row: row['Vahvemman voiton todennäköisyys'] if row['Pelaaja vahvempi'] == player1
+        else 1 - row['Vahvemman voiton todennäköisyys'],
+        axis=1
+    ).sum()
+    
+    actual_wins = h2h_df[h2h_df['Voittaja'] == player1].shape[0]
+    
+    win_data = pd.DataFrame({
+        'Type': ['Expected', 'Actual'],
+        'Count': [expected_wins, actual_wins]
+    })
+    
+    chart = alt.Chart(win_data).mark_bar().encode(
+        x=alt.X('Type', title=''),
+        y=alt.Y('Count', title=''),
+        color=alt.Color('Type', legend=None,
+                        scale=alt.Scale(domain=['Actual', 'Expected'], range=['#00FFD0', '#00BBFF'])),
+        tooltip=alt.Tooltip('Count', format='.1f')
+    ).properties(
+        width=150,
+        height=300,
+        title=f"Wins vs {player2}"
+    )
     
     return chart
