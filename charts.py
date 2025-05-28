@@ -153,12 +153,14 @@ def make_rating_timeline_chart(input_df, input_player, selected_opponent="NONE")
     y_min = min_rating - rating_padding
     y_max = max_rating + rating_padding
     
+    # Generate rating ticks for y-axis
     rating_ticks = list(range(int(y_min // 100) * 100, int(y_max // 100 + 1) * 100, 100))
     if not rating_ticks and combined_rating_df['Rating'].nunique() == 1:
         rating_ticks = [int(combined_rating_df['Rating'].iloc[0])]
     elif not rating_ticks:
         rating_ticks = [2000, 2100]
 
+    # Create rank labels for y-axis
     rank_df = pd.DataFrame({'value': rating_ticks})
     rank_df['rank'] = rank_df['value'].apply(lambda x: 
         f"{int((x - 2000) // 100)}d" if x >= 2100 else f"{int((2100 - x) // 100)}k"
@@ -168,6 +170,7 @@ def make_rating_timeline_chart(input_df, input_player, selected_opponent="NONE")
         x=alt.X('Date:T', title='Date')
     )
     
+    # Create line chart
     line = base.mark_line().encode(
         y=alt.Y('Rating:Q',
                 scale=alt.Scale(domain=[y_min, y_max], nice=False),
@@ -179,6 +182,7 @@ def make_rating_timeline_chart(input_df, input_player, selected_opponent="NONE")
         color='Player:N'
     )
     
+    # Create points for each game
     points = base.mark_point(size=50).encode(
         y=alt.Y('Rating:Q',
                 scale=alt.Scale(domain=[y_min, y_max], nice=False)),
@@ -186,6 +190,7 @@ def make_rating_timeline_chart(input_df, input_player, selected_opponent="NONE")
         color='Player:N'
     )
 
+    # Create rating labels
     rating_labels = alt.Chart(pd.DataFrame({'value': rating_ticks})).mark_text(
         align='right',
         baseline='middle',
@@ -196,6 +201,7 @@ def make_rating_timeline_chart(input_df, input_player, selected_opponent="NONE")
         color=alt.Color('rank:N', scale=alt.Scale(scheme='category10'), legend=None)
     )
     
+    # Create rank axis
     rank_axis_chart = alt.Chart(rank_df).mark_text(
         align='right',
         baseline='middle',
@@ -214,10 +220,12 @@ def make_rating_timeline_chart(input_df, input_player, selected_opponent="NONE")
         color=alt.Color('rank:N', scale=alt.Scale(scheme='category10'), legend=None)
     )
     
+    # Set chart title
     chart_title = f"{input_player}'s Rating Timeline"
     if selected_opponent != "NONE":
         chart_title += f" vs {selected_opponent}"
 
+    # Combine all chart elements
     chart = (line + points + rating_labels + rank_axis_chart).properties(
         width=800,
         height=300,

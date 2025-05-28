@@ -23,7 +23,7 @@ warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 # Page configuration
 #######################
 st.set_page_config(
-    page_title="Go Club Games Dashboard",
+    page_title="Go club games dashboard",
     page_icon="🌑",
     layout="wide",
     initial_sidebar_state="expanded")
@@ -134,13 +134,13 @@ df.sort_values(by=['Päivämäärä', 'Pelaaja vahvempi', 'Pelaaja heikompi'], a
 # Sidebar
 #######################
 with st.sidebar:
-    st.title('Go Club Games Dashboard')
+    st.title('Go club games dashboard')
 
     # Player selection
     players = df['Pelaaja vahvempi'].unique().tolist() + df['Pelaaja heikompi'].unique().tolist()
     players = sorted(set(players))
     players.insert(0, "ALL PLAYERS")  # Add "ALL PLAYERS" at the top of the list
-    selected_player = st.selectbox('Select a player', players, index=0)  # Default to "ALL PLAYERS"
+    selected_player = st.selectbox('Select player', players, index=0)  # Default to "ALL PLAYERS"
 
     # Opponent selection - only show players who have played against the selected player
     if selected_player != "ALL PLAYERS":
@@ -161,12 +161,12 @@ with st.sidebar:
         available_opponents = []
     
     available_opponents.insert(0, "NONE")  # Option to not select an opponent
-    selected_opponent = st.selectbox('Select opponent (optional)', available_opponents, index=0)
+    selected_opponent = st.selectbox('Select opponent', available_opponents, index=0)
 
     # Date range selection
     min_date = df['Päivämäärä'].min()
     max_date = df['Päivämäärä'].max()
-    selected_date_range = st.date_input('Select a date range', [min_date, max_date])
+    selected_date_range = st.date_input('Select date range', [min_date, max_date])
 
     # Filter data based on selections
     filtered_df = df[(df['Päivämäärä'] >= pd.to_datetime(selected_date_range[0])) &
@@ -240,26 +240,26 @@ with st.container():
     st.dataframe(
         sorted_df,
         hide_index=False,
-        column_order=("Päivämäärä", "Weekday", "Pelaaja vahvempi", "Vahvemman voiton todennäköisyys", "Pelaaja heikompi",
-                      "Rating vahv", "Tasoituskivet", "Rating heik", "Voittaja"),
+        column_order=("Päivämäärä", "Weekday", "Rating vahv", "Pelaaja vahvempi", "Vahvemman voiton todennäköisyys",
+                      "Rating heik","Pelaaja heikompi", "Tasoituskivet", "Voittaja"),
         column_config={
-            "Pelaaja vahvempi": "Player (Stronger)",
+            "Pelaaja vahvempi": "Player (stronger)",
             "Vahvemman voiton todennäköisyys": st.column_config.ProgressColumn(
-                "Stronger Win Probability", format="%.2f"
+                "Stronger player's win %", format="%.2f"
             ),
-            "Pelaaja heikompi": "Player (Weaker)",
+            "Pelaaja heikompi": "Player (weaker)",
             "Tasoituskivet": st.column_config.NumberColumn(
-                "Handicap Stones", format="%d"
+                "Handicap stones", format="%d"
             ),
             "Voittaja": "Winner",  # Rename column
             "Päivämäärä": st.column_config.DateColumn(
                 "Date", format="YYYY-MM-DD"
             ),
             "Rating vahv": st.column_config.NumberColumn(
-                "Stronger Rating", format="%.0f"
+                "Rating (s.)", format="%.0f"
             ),
             "Rating heik": st.column_config.NumberColumn(
-                "Weaker Rating", format="%.0f"
+                "Rating (w.)", format="%.0f"
             ),
 
         }
