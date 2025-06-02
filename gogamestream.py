@@ -40,7 +40,7 @@ def download_file(url, local_path):
     with open(local_path, 'wb') as file:
         file.write(response.content)
 
-@st.cache_data(ttl=timedelta(days=1))
+@st.cache_data(ttl=timedelta(hours=6), max_entries=1)
 def load_season_data(season_number, local_path, online_url, usecols, skiprows=3):
     """
     Load and clean data for a specific season.

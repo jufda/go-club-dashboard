@@ -1,0 +1,31 @@
+name: Update Go Club Data
+
+on:
+  schedule:
+    - cron: '0 3 * * 1,4'  # Runs at 03:00 UTC on Mondays and Thursdays
+  workflow_dispatch:
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Download latest data file
+        run: |
+          mkdir -p data
+          curl -L "https://docs.google.com/spreadsheets/d/1ktWkll-JubPHH3CSbcqO22WaJci2yAaQSK7-UKG8do8/export?format=xlsx" -o data/latest-season.xlsx
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/latest-season.xlsx
+          git diff --cached --quiet || git commit -m "Update latest-season.xlsx (automated)"
+          git push
