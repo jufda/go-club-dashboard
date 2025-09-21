@@ -101,9 +101,16 @@ df2 = load_season_data(
     usecols="B:F,O,P,V"
 )
 
+df3 = load_season_data(
+    season_number=3,
+    local_path='data/goseason3.xlsx',
+    online_url="https://docs.google.com/spreadsheets/d/1ktWkll-JubPHH3CSbcqO22WaJci2yAaQSK7-UKG8do8/export?format=xlsx",
+    usecols="B:F,O,P,V"
+)
+
 # Handle current season with special logic for file freshness
 local_file = "data/latest-season.xlsx"
-online_file_url = "https://docs.google.com/spreadsheets/d/1ktWkll-JubPHH3CSbcqO22WaJci2yAaQSK7-UKG8do8/export?format=xlsx"
+online_file_url = "https://docs.google.com/spreadsheets/d/1IjXQJSGUma8Deer0gT5uDDi0-VaDP3YFemMzHV1HLmA/export?format=xlsx"
 
 if os.path.exists(local_file):
     try:
@@ -119,15 +126,15 @@ else:
     print("Local file not found. Downloading the latest version...")
     download_file(online_file_url, local_file)
 
-df3 = load_season_data(
-    season_number=3,
+df4 = load_season_data(
+    season_number=4,
     local_path="data/latest-season.xlsx",
-    online_url="data/goseason3.xlsx",  # Fallback to local backup
+    online_url="data/goseason4.xlsx",  # Fallback to local backup
     usecols="B:F,O,P,V"
 )
 
 # Combine all seasons
-df = pd.concat([df1, df2, df3], ignore_index=True)
+df = pd.concat([df1, df2, df3, df4], ignore_index=True)
 df.sort_values(by=['Päivämäärä', 'Pelaaja vahvempi', 'Pelaaja heikompi'], ascending=True, inplace=True)
 
 #######################
@@ -271,15 +278,23 @@ with st.container():
 #######################
     with st.expander('About the stats for the selected player', expanded=False):
         st.write('''
-            - **Player's club games timeline**: Displays the activity in club games over time. ALL PLAYERS view show the number of games played.
+            - **Player's club games timeline**: Displays the activity in club games over time. 
+            - **Club games timeline (ALL PLAYERS)**: Counts both players for all games (total number is amount of games played x2).
             - **Games**: Shows the number of wins and losses. ALL PLAYERS view shows stats based on the stronger-by-rating player of each game.
-            - **Wins**: Shows the number of expected wins based or players' ratings and handicap stones compared to actual wins. ALL PLAYERS view shows the stats based on the stronger-by-rating player of each game.
+            - **Wins**: Shows the number of expected wins based or players' ratings and handicap stones compared to actual wins. 
+            - **Wins (ALL PLAYERS)**: Shows the stats based on the stronger-by-rating player of each game.
+            - **Player's rating timeline**: Shows player's club rating over time.
             - **Game details**: Lists all player's recorded club games and provides statistics.
             ''')
 
 
     with st.expander('Update history', expanded=False):
         st.write("""
+#### Updates 21.9.2025:
+1. **4th season added**: New club game season began on September 8th.
+2. **Updated about section**: To include all parts of the dashboard.
+3. **New colours based on weekdays**: Shows each weekday as a specific colour (instead of basing colours on players).
+        
 #### Updates 26.5.2025:
 1. **Opponent selection**: Shows only the games between players.
 2. **Performance optimization**: Caches the data.

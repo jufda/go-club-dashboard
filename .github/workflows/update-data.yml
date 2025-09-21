@@ -8,6 +8,8 @@ on:
 jobs:
   update-data:
     runs-on: ubuntu-latest
+    # permissions:
+      # contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -20,7 +22,7 @@ jobs:
       - name: Download latest data file
         run: |
           mkdir -p data
-          curl -L "https://docs.google.com/spreadsheets/d/1ktWkll-JubPHH3CSbcqO22WaJci2yAaQSK7-UKG8do8/export?format=xlsx" -o data/latest-season.xlsx
+          curl -L "https://docs.google.com/spreadsheets/d/1IjXQJSGUma8Deer0gT5uDDi0-VaDP3YFemMzHV1HLmA/export?format=xlsx" -o data/latest-season.xlsx
 
       - name: Commit and push if changed
         run: |

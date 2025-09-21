@@ -74,11 +74,50 @@ def make_performance_chart(input_df, input_player):
         )
         grouped_df = input_df.groupby(['Päivämäärä', 'Opponent']).size().reset_index(name='Game Count')
 
+    # Add weekday information and base colors (brighter versions for dark background)
+    grouped_df['Weekday'] = pd.to_datetime(grouped_df['Päivämäärä']).dt.dayofweek
+    weekday_colors = {
+        0: '#FFFFFF',  # Monday - White
+        1: '#FF4444',  # Tuesday - Bright Red
+        2: '#44FF44',  # Wednesday - Bright Green
+        3: '#FFFF44',  # Thursday - Bright Yellow
+        4: '#FF88FF',  # Friday - Bright Pink
+        5: '#AA44FF',  # Saturday - Bright Purple
+        6: '#FFAA44'   # Sunday - Bright Orange
+    }
+    
+    # Create a color scale that varies slightly with game count
+    def adjust_color_intensity(base_color, game_count):
+        # Convert hex to RGB
+        r = int(base_color[1:3], 16)
+        g = int(base_color[3:5], 16)
+        b = int(base_color[5:7], 16)
+        
+        # Very subtle intensity adjustment (only 20% variation)
+        intensity = 0.8 + (min(game_count / 5, 1) * 0.2)
+        
+        # For white (Monday), we'll make it slightly grayish
+        if base_color == '#FFFFFF':
+            return f'rgb({int(255 * intensity)}, {int(255 * intensity)}, {int(255 * intensity)})'
+        
+        # For other colors, adjust their intensity
+        return f'rgb({int(r * intensity)}, {int(g * intensity)}, {int(b * intensity)})'
+    
+    grouped_df['Color'] = grouped_df.apply(
+        lambda row: adjust_color_intensity(weekday_colors[row['Weekday']], row['Game Count']),
+        axis=1
+    )
+
     chart = alt.Chart(grouped_df).mark_bar().encode(
         x=alt.X('Päivämäärä:T', title='Date'),
         y=alt.Y('Game Count:Q', title='Number of players'),
-        color=alt.Color('Player:N' if input_player == "ALL PLAYERS" else 'Opponent:N', title='Player'),
-        tooltip=['Päivämäärä:T', 'Player:N' if input_player == "ALL PLAYERS" else 'Opponent:N', 'Game Count:Q']
+        color=alt.Color('Color:N', scale=None, legend=None),
+        tooltip=[
+            'Päivämäärä:T',
+            'Player:N' if input_player == "ALL PLAYERS" else 'Opponent:N',
+            'Game Count:Q',
+            alt.Tooltip('Weekday:N', title='Day of Week')
+        ]
     ).properties(
         width=800,
         height=300,
