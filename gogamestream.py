@@ -108,6 +108,13 @@ df3 = load_season_data(
     usecols="B:F,O,P,V"
 )
 
+df4 = load_season_data(
+    season_number=4,
+    local_path='data/goseason4.xlsx',
+    online_url="https://docs.google.com/spreadsheets/d/1Mqn6RuWFyJTktBnJCfhOPngO8BUvB_K8rS_M8NdTSSE/export?format=xlsx",
+    usecols="B:F,O,P,V"
+)
+
 # Handle current season with special logic for file freshness
 local_file = "data/latest-season.xlsx"
 online_file_url = "https://docs.google.com/spreadsheets/d/1IjXQJSGUma8Deer0gT5uDDi0-VaDP3YFemMzHV1HLmA/export?format=xlsx"
@@ -126,15 +133,15 @@ else:
     print("Local file not found. Downloading the latest version...")
     download_file(online_file_url, local_file)
 
-df4 = load_season_data(
-    season_number=4,
+df5 = load_season_data(
+    season_number=5,
     local_path="data/latest-season.xlsx",
-    online_url="data/goseason4.xlsx",  # Fallback to local backup
+    online_url="data/goseason5.xlsx",  # Fallback to local backup
     usecols="B:F,O,P,V"
 )
 
 # Combine all seasons
-df = pd.concat([df1, df2, df3, df4], ignore_index=True)
+df = pd.concat([df1, df2, df3, df4, df5], ignore_index=True)
 df.sort_values(by=['Päivämäärä', 'Pelaaja vahvempi', 'Pelaaja heikompi'], ascending=True, inplace=True)
 
 #######################
