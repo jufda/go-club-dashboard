@@ -2,7 +2,7 @@ name: Update Go Club Data
 
 on:
   schedule:
-    - cron: '41 3 * * 1,4'  # Runs at 03:00 UTC on Mondays and Thursdays
+    - cron: '11 1 * * 1,4'  # Runs at 01:11 UTC on Mondays and Thursdays
   workflow_dispatch:
 
 jobs:
@@ -17,7 +17,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: '>=3.13'
+          python-version: '>=3.14'
 
       - name: Download latest data file
         run: |
