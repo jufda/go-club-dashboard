@@ -2,343 +2,350 @@ import altair as alt
 import pandas as pd
 
 
-#######################
-# Win and loss chart
-#######################
-def make_win_loss_chart(input_df, input_player):
-    """Create a win/loss chart for a player."""
-    if input_player == "ALL PLAYERS":
-        wins = input_df[input_df['Voittaja'] == input_df['Pelaaja vahvempi']].shape[0]
-        losses = input_df.shape[0] - wins
-    else:
-        wins = input_df[input_df['Voittaja'] == input_player].shape[0]
-        losses = input_df[(input_df['Pelaaja vahvempi'] == input_player) |
-                         (input_df['Pelaaja heikompi'] == input_player)].shape[0] - wins
-    data = pd.DataFrame({
-        'Result': ['Wins', 'Losses'],
-        'Count': [wins, losses]
-    })
-    chart = alt.Chart(data).mark_bar().encode(
-        x=alt.X('Result', title='', sort=['Wins', 'Losses']),
-        y=alt.Y('Count', title=''),
-        color=alt.Color('Result', legend=None,
-                        scale=alt.Scale(domain=['Wins', 'Losses'], range=['#00FFD0', '#FF6900']))
-    ).properties(width=150, height=300)
-    return chart
+# ──────────────────────────────────────────────
+# Shared helpers
+# ──────────────────────────────────────────────
 
-#######################
-# Expected vs actual wins
-#######################
-def make_expected_vs_actual_chart(filtered_df, selected_player):
-    """Create a chart comparing expected vs actual wins."""
+WIN_COLOR = "#00FFD0"
+LOSS_COLOR = "#FF6900"
+ACTUAL_COLOR = "#00FFD0"
+EXPECTED_COLOR = "#00BBFF"
+SMALL_CHART_W = 150
+SMALL_CHART_H = 300
+LARGE_CHART_H = 300
+
+
+def _win_loss_bar(data: pd.DataFrame, title: str = "", width: int = SMALL_CHART_W) -> alt.Chart:
+    """Shared helper: render a Wins/Losses bar chart from a {'Result','Count'} DataFrame."""
+    return (
+        alt.Chart(data)
+        .mark_bar()
+        .encode(
+            x=alt.X("Result", title="", sort=["Wins", "Losses"]),
+            y=alt.Y("Count", title=""),
+            color=alt.Color(
+                "Result",
+                legend=None,
+                scale=alt.Scale(domain=["Wins", "Losses"], range=[WIN_COLOR, LOSS_COLOR]),
+            ),
+            tooltip=[
+                alt.Tooltip("Result:N"),
+                alt.Tooltip("Count:Q", title="Games"),
+            ],
+        )
+        .properties(width=width, height=SMALL_CHART_H, title=title)
+    )
+
+
+def _expected_vs_actual_bar(data: pd.DataFrame, title: str = "") -> alt.Chart:
+    """Shared helper: render an Expected/Actual bar chart from a {'Type','Count'} DataFrame."""
+    return (
+        alt.Chart(data)
+        .mark_bar()
+        .encode(
+            x=alt.X("Type", title=""),
+            y=alt.Y("Count", title=""),
+            color=alt.Color(
+                "Type",
+                legend=None,
+                scale=alt.Scale(domain=["Actual", "Expected"], range=[ACTUAL_COLOR, EXPECTED_COLOR]),
+            ),
+            tooltip=[
+                alt.Tooltip("Type:N"),
+                alt.Tooltip("Count:Q", title="Wins", format=".1f"),
+            ],
+        )
+        .properties(width=SMALL_CHART_W, height=SMALL_CHART_H, title=title)
+    )
+
+
+# ──────────────────────────────────────────────
+# Win / loss chart
+# ──────────────────────────────────────────────
+
+def make_win_loss_chart(input_df: pd.DataFrame, input_player: str) -> alt.Chart:
+    """Bar chart: wins and losses for a player (or all players)."""
+    if input_player == "ALL PLAYERS":
+        wins = input_df[input_df["Voittaja"] == input_df["Pelaaja vahvempi"]].shape[0]
+    else:
+        wins = input_df[input_df["Voittaja"] == input_player].shape[0]
+
+    total = input_df[(input_df["Pelaaja vahvempi"] == input_player) |
+                     (input_df["Pelaaja heikompi"] == input_player)].shape[0] if input_player != "ALL PLAYERS" \
+        else input_df.shape[0]
+    losses = total - wins
+
+    data = pd.DataFrame({"Result": ["Wins", "Losses"], "Count": [wins, losses]})
+    return _win_loss_bar(data)
+
+
+# ──────────────────────────────────────────────
+# Expected vs actual wins chart
+# ──────────────────────────────────────────────
+
+def make_expected_vs_actual_chart(filtered_df: pd.DataFrame, selected_player: str) -> alt.Chart:
+    """Bar chart comparing expected win probability vs actual wins."""
     if selected_player == "ALL PLAYERS":
-        expected_wins = filtered_df['Vahvemman voiton todennäköisyys'].sum()
-        actual_wins = filtered_df[filtered_df['Voittaja'] == filtered_df['Pelaaja vahvempi']].shape[0]
+        expected_wins = filtered_df["Vahvemman voiton todennäköisyys"].sum()
+        actual_wins = filtered_df[filtered_df["Voittaja"] == filtered_df["Pelaaja vahvempi"]].shape[0]
     else:
-        expected_wins = filtered_df['Selected Player Win Probability'].sum()
-        actual_wins = filtered_df[filtered_df['Voittaja'] == selected_player].shape[0]
+        expected_wins = filtered_df["Selected Player Win Probability"].sum()
+        actual_wins = filtered_df[filtered_df["Voittaja"] == selected_player].shape[0]
 
-    win_data = pd.DataFrame({
-        'Type': ['Expected', 'Actual'],
-        'Count': [expected_wins, actual_wins]
-    })
+    data = pd.DataFrame({"Type": ["Expected", "Actual"], "Count": [expected_wins, actual_wins]})
+    return _expected_vs_actual_bar(data)
 
-    chart = alt.Chart(win_data).mark_bar().encode(
-        x=alt.X('Type', title=''),
-        y=alt.Y('Count', title=''),
-        color=alt.Color('Type', legend=None,
-                        scale=alt.Scale(domain=['Actual', 'Expected'], range=['#00FFD0', '#00BBFF'])),
-    tooltip=alt.Tooltip('Count', format='.1f')
-    ).properties(width=150, height=300)
 
-    return chart
+# ──────────────────────────────────────────────
+# Activity / performance timeline
+# ──────────────────────────────────────────────
 
-#######################
-# Activity timeline
-#######################
-def make_performance_chart(input_df, input_player):
-    """Create an activity timeline chart for a player."""
+WEEKDAY_COLORS = {
+    0: "#FFFFFF",  # Monday    – White
+    1: "#FF4444",  # Tuesday   – Red
+    2: "#44FF44",  # Wednesday – Green
+    3: "#FFFF44",  # Thursday  – Yellow
+    4: "#FF88FF",  # Friday    – Pink
+    5: "#AA44FF",  # Saturday  – Purple
+    6: "#FFAA44",  # Sunday    – Orange
+}
+
+
+def _adjust_color_intensity(base_color: str, game_count: int) -> str:
+    """Scale a hex colour slightly brighter with more games (max ±20%)."""
+    r, g, b = int(base_color[1:3], 16), int(base_color[3:5], 16), int(base_color[5:7], 16)
+    intensity = 0.8 + (min(game_count / 5, 1) * 0.2)
+    if base_color == "#FFFFFF":
+        v = int(255 * intensity)
+        return f"rgb({v},{v},{v})"
+    return f"rgb({int(r*intensity)},{int(g*intensity)},{int(b*intensity)})"
+
+
+def make_performance_chart(input_df: pd.DataFrame, input_player: str) -> alt.Chart:
+    """Bar chart showing game activity over time, coloured by weekday."""
     if input_player == "ALL PLAYERS":
-        input_df = input_df.melt(
-            id_vars=['Päivämäärä'],
-            value_vars=['Pelaaja vahvempi', 'Pelaaja heikompi'],
-            var_name='Role',
-            value_name='Player'
+        melted = input_df.melt(
+            id_vars=["Päivämäärä"],
+            value_vars=["Pelaaja vahvempi", "Pelaaja heikompi"],
+            var_name="Role",
+            value_name="Player",
         )
-        grouped_df = input_df.groupby(['Päivämäärä', 'Player']).size().reset_index(name='Game Count')
+        grouped = melted.groupby(["Päivämäärä", "Player"]).size().reset_index(name="Game Count")
+        hover_field = "Player:N"
     else:
-        input_df = input_df[(input_df['Pelaaja vahvempi'] == input_player) | (input_df['Pelaaja heikompi'] == input_player)]
-        input_df['Opponent'] = input_df.apply(
-            lambda row: row['Pelaaja heikompi'] if row['Pelaaja vahvempi'] == input_player else row['Pelaaja vahvempi'],
-            axis=1
+        mask = (input_df["Pelaaja vahvempi"] == input_player) | (input_df["Pelaaja heikompi"] == input_player)
+        filtered = input_df[mask].copy()
+        filtered["Opponent"] = filtered.apply(
+            lambda r: r["Pelaaja heikompi"] if r["Pelaaja vahvempi"] == input_player else r["Pelaaja vahvempi"],
+            axis=1,
         )
-        grouped_df = input_df.groupby(['Päivämäärä', 'Opponent']).size().reset_index(name='Game Count')
+        grouped = filtered.groupby(["Päivämäärä", "Opponent"]).size().reset_index(name="Game Count")
+        hover_field = "Opponent:N"
 
-    # Add weekday information and base colors (brighter versions for dark background)
-    grouped_df['Weekday'] = pd.to_datetime(grouped_df['Päivämäärä']).dt.dayofweek
-    weekday_colors = {
-        0: '#FFFFFF',  # Monday - White
-        1: '#FF4444',  # Tuesday - Bright Red
-        2: '#44FF44',  # Wednesday - Bright Green
-        3: '#FFFF44',  # Thursday - Bright Yellow
-        4: '#FF88FF',  # Friday - Bright Pink
-        5: '#AA44FF',  # Saturday - Bright Purple
-        6: '#FFAA44'   # Sunday - Bright Orange
-    }
-    
-    # Create a color scale that varies slightly with game count
-    def adjust_color_intensity(base_color, game_count):
-        # Convert hex to RGB
-        r = int(base_color[1:3], 16)
-        g = int(base_color[3:5], 16)
-        b = int(base_color[5:7], 16)
-        
-        # Very subtle intensity adjustment (only 20% variation)
-        intensity = 0.8 + (min(game_count / 5, 1) * 0.2)
-        
-        # For white (Monday), we'll make it slightly grayish
-        if base_color == '#FFFFFF':
-            return f'rgb({int(255 * intensity)}, {int(255 * intensity)}, {int(255 * intensity)})'
-        
-        # For other colors, adjust their intensity
-        return f'rgb({int(r * intensity)}, {int(g * intensity)}, {int(b * intensity)})'
-    
-    grouped_df['Color'] = grouped_df.apply(
-        lambda row: adjust_color_intensity(weekday_colors[row['Weekday']], row['Game Count']),
-        axis=1
+    grouped["Weekday"] = pd.to_datetime(grouped["Päivämäärä"]).dt.dayofweek
+    grouped["Weekday Name"] = pd.to_datetime(grouped["Päivämäärä"]).dt.day_name()
+    grouped["Color"] = grouped.apply(
+        lambda r: _adjust_color_intensity(WEEKDAY_COLORS[r["Weekday"]], r["Game Count"]), axis=1
     )
 
-    chart = alt.Chart(grouped_df).mark_bar().encode(
-        x=alt.X('Päivämäärä:T', title='Date'),
-        y=alt.Y('Game Count:Q', title='Number of players'),
-        color=alt.Color('Color:N', scale=None, legend=None),
-        tooltip=[
-            'Päivämäärä:T',
-            'Player:N' if input_player == "ALL PLAYERS" else 'Opponent:N',
-            'Game Count:Q',
-            alt.Tooltip('Weekday:N', title='Day of Week')
-        ]
-    ).properties(
-        width=800,
-        height=300,
-        title=f"{input_player}'s club activity timeline"
-    ).interactive()
+    return (
+        alt.Chart(grouped)
+        .mark_bar()
+        .encode(
+            x=alt.X("Päivämäärä:T", title="Date"),
+            y=alt.Y("Game Count:Q", title="Number of players"),
+            color=alt.Color("Color:N", scale=None, legend=None),
+            tooltip=[
+                alt.Tooltip("Päivämäärä:T", title="Date"),
+                alt.Tooltip(hover_field, title="Player" if input_player == "ALL PLAYERS" else "Opponent"),
+                alt.Tooltip("Game Count:Q", title="Games"),
+                alt.Tooltip("Weekday Name:N", title="Weekday"),
+            ],
+        )
+        .properties(width=800, height=LARGE_CHART_H, title=f"{input_player}'s club activity timeline")
+        .interactive()
+    )
 
-    return chart
 
-#######################
-# Rating timeline
-#######################
-def make_rating_timeline_chart(input_df, input_player, selected_opponent="NONE"):
-    """Create a rating timeline chart for player(s)."""
+# ──────────────────────────────────────────────
+# Rating / rank timeline
+# ──────────────────────────────────────────────
+
+def _rating_to_rank_label(rating: float) -> str:
+    """Convert a numeric ELO-style rating to a Go rank label (e.g. '1d', '5k')."""
+    if rating >= 2100:
+        return f"{int((rating - 2000) // 100)}d"
+    return f"{int((2100 - rating) // 100)}k"
+
+
+def make_rating_timeline_chart(
+    input_df: pd.DataFrame, input_player: str, selected_opponent: str = "NONE"
+) -> alt.Chart | None:
+    """Line + point chart of rating over time, with rank labels on the y-axis.
+
+    Draws an extra highlighted point at the most recent game to make the
+    current rating immediately visible.
+    """
     if input_player == "ALL PLAYERS":
         return None
-    
-    rating_data_player1 = []
-    rating_data_player2 = []
 
-    # Get all games for player 1 (selected player)
-    stronger_games_p1 = input_df[input_df['Pelaaja vahvempi'] == input_player]
-    for _, row in stronger_games_p1.iterrows():
-        rating_data_player1.append({
-            'Date': row['Päivämäärä'],
-            'Rating': row['Rating vahv'],
-            'Player': input_player
-        })
+    def _collect_ratings(df: pd.DataFrame, player: str) -> list[dict]:
+        rows = []
+        for col_role, col_rating in [("Pelaaja vahvempi", "Rating vahv"), ("Pelaaja heikompi", "Rating heik")]:
+            for _, row in df[df[col_role] == player].iterrows():
+                rows.append({"Date": row["Päivämäärä"], "Rating": row[col_rating], "Player": player})
+        return rows
 
-    weaker_games_p1 = input_df[input_df['Pelaaja heikompi'] == input_player]
-    for _, row in weaker_games_p1.iterrows():
-        rating_data_player1.append({
-            'Date': row['Päivämäärä'],
-            'Rating': row['Rating heik'],
-            'Player': input_player
-        })
+    ratings_p1 = _collect_ratings(input_df, input_player)
+    ratings_p2 = _collect_ratings(input_df, selected_opponent) if selected_opponent != "NONE" else []
 
-    if selected_opponent != "NONE":
-        # Get all games for player 2 (opponent), not just games against selected player
-        stronger_games_p2 = input_df[input_df['Pelaaja vahvempi'] == selected_opponent]
-        for _, row in stronger_games_p2.iterrows():
-            rating_data_player2.append({
-                'Date': row['Päivämäärä'],
-                'Rating': row['Rating vahv'],
-                'Player': selected_opponent
-            })
-
-        weaker_games_p2 = input_df[input_df['Pelaaja heikompi'] == selected_opponent]
-        for _, row in weaker_games_p2.iterrows():
-            rating_data_player2.append({
-                'Date': row['Päivämäärä'],
-                'Rating': row['Rating heik'],
-                'Player': selected_opponent
-            })
-    
-    if not rating_data_player1:
+    if not ratings_p1:
         return None
-        
-    rating_df_player1 = pd.DataFrame(rating_data_player1)
-    rating_df_player1 = rating_df_player1.sort_values('Date')
-    
-    all_rating_data = [rating_df_player1]
-    if rating_data_player2:
-        rating_df_player2 = pd.DataFrame(rating_data_player2)
-        rating_df_player2 = rating_df_player2.sort_values('Date')
-        all_rating_data.append(rating_df_player2)
 
-    combined_rating_df = pd.concat(all_rating_data)
-    
-    min_rating = combined_rating_df['Rating'].min()
-    max_rating = combined_rating_df['Rating'].max()
-    rating_padding = (max_rating - min_rating) * 0.1 if (max_rating - min_rating) > 0 else 10
-    y_min = min_rating - rating_padding
-    y_max = max_rating + rating_padding
-    
-    # Generate rating ticks for y-axis
-    rating_ticks = list(range(int(y_min // 100) * 100, int(y_max // 100 + 1) * 100, 100))
-    if not rating_ticks and combined_rating_df['Rating'].nunique() == 1:
-        rating_ticks = [int(combined_rating_df['Rating'].iloc[0])]
-    elif not rating_ticks:
-        rating_ticks = [2000, 2100]
+    df_p1 = pd.DataFrame(ratings_p1).sort_values("Date")
+    all_frames = [df_p1]
+    if ratings_p2:
+        df_p2 = pd.DataFrame(ratings_p2).sort_values("Date")
+        all_frames.append(df_p2)
 
-    # Create rank labels for y-axis
-    rank_df = pd.DataFrame({'value': rating_ticks})
-    rank_df['rank'] = rank_df['value'].apply(lambda x: 
-        f"{int((x - 2000) // 100)}d" if x >= 2100 else f"{int((2100 - x) // 100)}k"
-    )
-    
-    base = alt.Chart(combined_rating_df).encode(
-        x=alt.X('Date:T', title='Date')
-    )
-    
-    # Create line chart
+    combined = pd.concat(all_frames, ignore_index=True)
+
+    # Y-axis range with padding
+    r_min, r_max = combined["Rating"].min(), combined["Rating"].max()
+    pad = (r_max - r_min) * 0.1 if r_max > r_min else 10
+    y_min, y_max = r_min - pad, r_max + pad
+
+    # Rating tick marks (every 100 points)
+    ticks = list(range(int(y_min // 100) * 100, int(y_max // 100 + 1) * 100, 100))
+    if not ticks:
+        ticks = [2000, 2100] if combined["Rating"].nunique() > 1 else [int(combined["Rating"].iloc[0])]
+
+    rank_df = pd.DataFrame({"value": ticks})
+    rank_df["rank"] = rank_df["value"].apply(_rating_to_rank_label)
+
+    y_scale = alt.Scale(domain=[y_min, y_max], nice=False)
+
+    base = alt.Chart(combined).encode(x=alt.X("Date:T", title="Date"))
+
     line = base.mark_line().encode(
-        y=alt.Y('Rating:Q',
-                scale=alt.Scale(domain=[y_min, y_max], nice=False),
-                axis=alt.Axis(
-                    title='Rating',
-                    values=rating_ticks,
-                    grid=True
-                )),
-        color='Player:N'
+        y=alt.Y("Rating:Q", scale=y_scale, axis=alt.Axis(title="Rating", values=ticks, grid=True)),
+        color=alt.Color("Player:N"),
+        tooltip=[
+            alt.Tooltip("Date:T", title="Date"),
+            alt.Tooltip("Rating:Q", format=".0f", title="Rating"),
+            alt.Tooltip("Player:N"),
+        ],
     )
-    
-    # Create points for each game
+
     points = base.mark_point(size=50).encode(
-        y=alt.Y('Rating:Q',
-                scale=alt.Scale(domain=[y_min, y_max], nice=False)),
-        tooltip=['Date:T', alt.Tooltip('Rating:Q', format='.0f'), 'Player:N'],
-        color='Player:N'
+        y=alt.Y("Rating:Q", scale=y_scale),
+        color=alt.Color("Player:N"),
+        tooltip=[
+            alt.Tooltip("Date:T", title="Date"),
+            alt.Tooltip("Rating:Q", format=".0f", title="Rating"),
+            alt.Tooltip("Player:N"),
+        ],
     )
 
-    # Create rating labels
-    rating_labels = alt.Chart(pd.DataFrame({'value': rating_ticks})).mark_text(
-        align='right',
-        baseline='middle',
-        dx=-60
-    ).encode(
-        y=alt.Y('value:Q', scale=alt.Scale(domain=[y_min, y_max], nice=False)),
-        text=alt.Text('value:Q', format='.0f'),
-        color=alt.Color('rank:N', scale=alt.Scale(scheme='category10'), legend=None)
+    # ── Latest-point highlight ──────────────────────────────────────
+    latest_rows = []
+    for player_name in combined["Player"].unique():
+        player_df = combined[combined["Player"] == player_name]
+        latest_rows.append(player_df.loc[player_df["Date"].idxmax()])
+    latest_df = pd.DataFrame(latest_rows)
+
+    latest_point = (
+        alt.Chart(latest_df)
+        .mark_point(size=180, shape="diamond", filled=True, stroke="white", strokeWidth=1.5)
+        .encode(
+            x=alt.X("Date:T"),
+            y=alt.Y("Rating:Q", scale=y_scale),
+            color=alt.Color("Player:N"),
+            tooltip=[
+                alt.Tooltip("Date:T", title="Latest game"),
+                alt.Tooltip("Rating:Q", format=".0f", title="Current rating"),
+                alt.Tooltip("Player:N"),
+            ],
+        )
     )
-    
-    # Create rank axis
-    rank_axis_chart = alt.Chart(rank_df).mark_text(
-        align='right',
-        baseline='middle',
-        dx=60,
-        fontWeight='bold'
-    ).encode(
-        y=alt.Y('value:Q',
-                scale=alt.Scale(domain=[y_min, y_max], nice=False),
-                axis=alt.Axis(
-                    orient='right',
-                    title='',
-                    values=rating_ticks,
-                    grid=False
-                )),
-        text='rank:N',
-        color=alt.Color('rank:N', scale=alt.Scale(scheme='category10'), legend=None)
+
+    latest_label = (
+        alt.Chart(latest_df)
+        .mark_text(align="left", dx=8, dy=-8, fontWeight="bold")
+        .encode(
+            x=alt.X("Date:T"),
+            y=alt.Y("Rating:Q", scale=y_scale),
+            text=alt.Text("Rating:Q", format=".0f"),
+            color=alt.Color("Player:N"),
+        )
     )
-    
-    # Set chart title
-    chart_title = f"{input_player}'s Rating Timeline"
+    # ───────────────────────────────────────────────────────────────
+
+    rating_labels = (
+        alt.Chart(rank_df)
+        .mark_text(align="right", baseline="middle", dx=-60)
+        .encode(
+            y=alt.Y("value:Q", scale=y_scale),
+            text=alt.Text("value:Q", format=".0f"),
+            color=alt.Color("rank:N", scale=alt.Scale(scheme="category10"), legend=None),
+        )
+    )
+
+    rank_axis = (
+        alt.Chart(rank_df)
+        .mark_text(align="right", baseline="middle", dx=60, fontWeight="bold")
+        .encode(
+            y=alt.Y(
+                "value:Q",
+                scale=y_scale,
+                axis=alt.Axis(orient="right", title="", values=ticks, grid=False),
+            ),
+            text="rank:N",
+            color=alt.Color("rank:N", scale=alt.Scale(scheme="category10"), legend=None),
+        )
+    )
+
+    title = f"{input_player}'s Rating Timeline"
     if selected_opponent != "NONE":
-        chart_title += f" vs {selected_opponent}"
+        title += f" vs {selected_opponent}"
 
-    # Combine all chart elements
-    chart = (line + points + rating_labels + rank_axis_chart).properties(
-        width=800,
-        height=300,
-        title=chart_title
-    ).interactive()
-    
-    return chart
-
-#######################
-# Head-to-head win/loss chart
-#######################
-def make_head_to_head_win_loss_chart(input_df, player1, player2):
-    """Create a win/loss ratio chart for head-to-head games between two players."""
-    # Filter for games between the two players
-    h2h_df = input_df[
-        ((input_df['Pelaaja vahvempi'] == player1) & (input_df['Pelaaja heikompi'] == player2)) |
-        ((input_df['Pelaaja vahvempi'] == player2) & (input_df['Pelaaja heikompi'] == player1))
-    ]
-    
-    wins = h2h_df[h2h_df['Voittaja'] == player1].shape[0]
-    losses = h2h_df.shape[0] - wins
-    
-    data = pd.DataFrame({
-        'Result': ['Wins', 'Losses'],
-        'Count': [wins, losses]
-    })
-    
-    chart = alt.Chart(data).mark_bar().encode(
-        x=alt.X('Result', title='', sort=['Wins', 'Losses']),
-        y=alt.Y('Count', title=''),
-        color=alt.Color('Result', legend=None,
-                        scale=alt.Scale(domain=['Wins', 'Losses'], range=['#00FFD0', '#FF6900']))
-    ).properties(
-        width=150,
-        height=300,
-        title=f"Games vs {player2}"
+    return (
+        (line + points + latest_point + latest_label + rating_labels + rank_axis)
+        .properties(width=800, height=LARGE_CHART_H, title=title)
+        .interactive()
     )
-    return chart
 
-#######################
-# Head-to-head expected vs actual wins
-#######################
-def make_head_to_head_expected_vs_actual_chart(input_df, player1, player2):
-    """Create a chart comparing expected vs actual wins for head-to-head games."""
-    # Filter for games between the two players
-    h2h_df = input_df[
-        ((input_df['Pelaaja vahvempi'] == player1) & (input_df['Pelaaja heikompi'] == player2)) |
-        ((input_df['Pelaaja vahvempi'] == player2) & (input_df['Pelaaja heikompi'] == player1))
+
+# ──────────────────────────────────────────────
+# Head-to-head charts
+# ──────────────────────────────────────────────
+
+def _filter_h2h(input_df: pd.DataFrame, player1: str, player2: str) -> pd.DataFrame:
+    """Return only rows where player1 and player2 faced each other."""
+    return input_df[
+        ((input_df["Pelaaja vahvempi"] == player1) & (input_df["Pelaaja heikompi"] == player2))
+        | ((input_df["Pelaaja vahvempi"] == player2) & (input_df["Pelaaja heikompi"] == player1))
     ]
-    
-    # Calculate expected wins for player1
-    expected_wins = h2h_df.apply(
-        lambda row: row['Vahvemman voiton todennäköisyys'] if row['Pelaaja vahvempi'] == player1
-        else 1 - row['Vahvemman voiton todennäköisyys'],
-        axis=1
+
+
+def make_head_to_head_win_loss_chart(input_df: pd.DataFrame, player1: str, player2: str) -> alt.Chart:
+    """Bar chart: wins and losses for player1 against player2."""
+    h2h = _filter_h2h(input_df, player1, player2)
+    wins = h2h[h2h["Voittaja"] == player1].shape[0]
+    losses = h2h.shape[0] - wins
+    data = pd.DataFrame({"Result": ["Wins", "Losses"], "Count": [wins, losses]})
+    return _win_loss_bar(data, title=f"Games vs {player2}")
+
+
+def make_head_to_head_expected_vs_actual_chart(input_df: pd.DataFrame, player1: str, player2: str) -> alt.Chart:
+    """Bar chart comparing expected vs actual wins for player1 vs player2."""
+    h2h = _filter_h2h(input_df, player1, player2)
+    expected_wins = h2h.apply(
+        lambda r: r["Vahvemman voiton todennäköisyys"]
+        if r["Pelaaja vahvempi"] == player1
+        else 1 - r["Vahvemman voiton todennäköisyys"],
+        axis=1,
     ).sum()
-    
-    actual_wins = h2h_df[h2h_df['Voittaja'] == player1].shape[0]
-    
-    win_data = pd.DataFrame({
-        'Type': ['Expected', 'Actual'],
-        'Count': [expected_wins, actual_wins]
-    })
-    
-    chart = alt.Chart(win_data).mark_bar().encode(
-        x=alt.X('Type', title=''),
-        y=alt.Y('Count', title=''),
-        color=alt.Color('Type', legend=None,
-                        scale=alt.Scale(domain=['Actual', 'Expected'], range=['#00FFD0', '#00BBFF'])),
-        tooltip=alt.Tooltip('Count', format='.1f')
-    ).properties(
-        width=150,
-        height=300,
-        title=f"Wins vs {player2}"
-    )
-    
-    return chart
+    actual_wins = h2h[h2h["Voittaja"] == player1].shape[0]
+    data = pd.DataFrame({"Type": ["Expected", "Actual"], "Count": [expected_wins, actual_wins]})
+    return _expected_vs_actual_bar(data, title=f"Wins vs {player2}")
