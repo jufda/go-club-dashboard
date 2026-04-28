@@ -52,7 +52,7 @@ def _expected_vs_actual_bar(data: pd.DataFrame, title: str = "") -> alt.Chart:
             ),
             tooltip=[
                 alt.Tooltip("Type:N"),
-                alt.Tooltip("Count:Q", title="Wins", format=".1f"),
+                alt.Tooltip("Count:Q", title="Wins", format=".1~f"),
             ],
         )
         .properties(width=SMALL_CHART_W, height=SMALL_CHART_H, title=title)
@@ -92,7 +92,7 @@ def make_expected_vs_actual_chart(filtered_df: pd.DataFrame, selected_player: st
         expected_wins = filtered_df["Selected Player Win Probability"].sum()
         actual_wins = filtered_df[filtered_df["Voittaja"] == selected_player].shape[0]
 
-    data = pd.DataFrame({"Type": ["Expected", "Actual"], "Count": [expected_wins, actual_wins]})
+    data = pd.DataFrame({"Type": ["Expected", "Actual"], "Count": [expected_wins, int(actual_wins)]})
     return _expected_vs_actual_bar(data)
 
 
@@ -271,7 +271,7 @@ def make_rating_timeline_chart(
 
     latest_label = (
         alt.Chart(latest_df)
-        .mark_text(align="left", dx=8, dy=-8, fontWeight="bold")
+        .mark_text(align="right", dx=-10, dy=-8, fontWeight="bold")
         .encode(
             x=alt.X("Date:T"),
             y=alt.Y("Rating:Q", scale=y_scale),
@@ -347,5 +347,5 @@ def make_head_to_head_expected_vs_actual_chart(input_df: pd.DataFrame, player1: 
         axis=1,
     ).sum()
     actual_wins = h2h[h2h["Voittaja"] == player1].shape[0]
-    data = pd.DataFrame({"Type": ["Expected", "Actual"], "Count": [expected_wins, actual_wins]})
+    data = pd.DataFrame({"Type": ["Expected", "Actual"], "Count": [expected_wins, int(actual_wins)]})
     return _expected_vs_actual_bar(data, title=f"Wins vs {player2}")

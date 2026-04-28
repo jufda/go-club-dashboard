@@ -8,26 +8,78 @@ on:
 jobs:
   update-data:
     runs-on: ubuntu-latest
-    # permissions:
-      # contents: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v6.0.2
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v6.2.0
         with:
-          python-version: '>=3.14'
+          python-version: '3.14'
 
-      - name: Download latest data file
+      - name: Install requests
+        run: pip install requests
+
+      - name: Download and check latest season data
+        id: season_check
         run: |
-          mkdir -p data
-          curl -L "https://docs.google.com/spreadsheets/d/1IjXQJSGUma8Deer0gT5uDDi0-VaDP3YFemMzHV1HLmA/export?format=xlsx" -o data/latest-season.xlsx
+          python - <<'EOF'
+          import os, requests
+
+          LOCAL = "data/latest-season.xlsx"
+          TMP   = LOCAL + ".tmp"
+          URL   = "https://docs.google.com/spreadsheets/d/1IjXQJSGUma8Deer0gT5uDDi0-VaDP3YFemMzHV1HLmA/export?format=xlsx"
+
+          # Current season number is one above the highest archived goseason file
+          existing = [f for f in os.listdir("data") if f.startswith("goseason") and f.endswith(".xlsx")]
+          current_season = max(
+              (int(f.replace("goseason", "").replace(".xlsx", "")) for f in existing),
+              default=4
+          ) + 1
+
+          os.makedirs("data", exist_ok=True)
+
+          print(f"Downloading latest season data (current season: {current_season})...")
+          r = requests.get(URL, timeout=60)
+          r.raise_for_status()
+          with open(TMP, "wb") as fh:
+              fh.write(r.content)
+
+          new_size = os.path.getsize(TMP)
+          rolled_over = False
+
+          if os.path.exists(LOCAL):
+              old_size = os.path.getsize(LOCAL)
+              if new_size < old_size:
+                  archive = f"data/goseason{current_season}.xlsx"
+                  print(f"Season rollover detected ({new_size} B < {old_size} B): archiving as {archive}")
+                  os.replace(LOCAL, archive)
+                  rolled_over = True
+              else:
+                  print(f"Updating latest-season.xlsx ({old_size} B -> {new_size} B)")
+                  os.remove(LOCAL)
+          else:
+              print("No existing file found, saving fresh download.")
+
+          os.replace(TMP, LOCAL)
+
+          # Expose outputs for the commit step
+          with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+              fh.write(f"rolled_over={str(rolled_over).lower()}\n")
+              fh.write(f"current_season={current_season}\n")
+
+          print("Done.")
+          EOF
 
       - name: Commit and push if changed
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/latest-season.xlsx
-          git diff --cached --quiet || git commit -m "Update latest-season.xlsx (automated)"
+          git add data/
+          if [ "${{ steps.season_check.outputs.rolled_over }}" = "true" ]; then
+            MSG="Archive season ${{ steps.season_check.outputs.current_season }} and start new season (automated)"
+          else
+            MSG="Update latest-season.xlsx (automated)"
+          fi
+          git diff --cached --quiet || git commit -m "$MSG"
           git push

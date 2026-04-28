@@ -1,10 +1,11 @@
-import altair as alt
-from datetime import datetime, timedelta
+import glob
 import os
-import pandas as pd
-import requests
-import streamlit as st
 import warnings
+
+import altair as alt
+import pandas as pd
+import streamlit as st
+
 from charts import (
     make_performance_chart,
     make_rating_timeline_chart,
@@ -18,61 +19,18 @@ warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
 
 # ══════════════════════════════════════════════════════════════════
-# CONFIGURATION  ← edit this block to add/remove seasons
+# CONFIGURATION
 # ══════════════════════════════════════════════════════════════════
 
-SEASONS: list[dict] = [
-    {
-        "number": 1,
-        "local_path": "data/goseason1.xlsx",
-        "online_url": (
-            "https://docs.google.com/spreadsheets/d/"
-            "1NImVfaJ3z7K_hrlvFsC-HmmtXIj7x2ZVcIZthPf2IYs/export?format=xlsx"
-        ),
-        "usecols": "B:E,G,P,Q,W",
-    },
-    {
-        "number": 2,
-        "local_path": "data/goseason2.xlsx",
-        "online_url": (
-            "https://docs.google.com/spreadsheets/d/"
-            "18qYVirc-_ni1I6myhICqA3hMgxP9pfvuBNJ0oLbljIE/export?format=xlsx"
-        ),
-        "usecols": "B:F,O,P,V",
-    },
-    {
-        "number": 3,
-        "local_path": "data/goseason3.xlsx",
-        "online_url": (
-            "https://docs.google.com/spreadsheets/d/"
-            "1ktWkll-JubPHH3CSbcqO22WaJci2yAaQSK7-UKG8do8/export?format=xlsx"
-        ),
-        "usecols": "B:F,O,P,V",
-    },
-    {
-        "number": 4,
-        "local_path": "data/goseason4.xlsx",
-        "online_url": (
-            "https://docs.google.com/spreadsheets/d/"
-            "1Mqn6RuWFyJTktBnJCfhOPngO8BUvB_K8rS_M8NdTSSE/export?format=xlsx"
-        ),
-        "usecols": "B:F,O,P,V",
-    },
-    {
-        "number": 5,
-        # Season 5 uses a special refresh-checked local file
-        "local_path": "data/latest-season.xlsx",
-        "online_url": (
-            "https://docs.google.com/spreadsheets/d/"
-            "1IjXQJSGUma8Deer0gT5uDDi0-VaDP3YFemMzHV1HLmA/export?format=xlsx"
-        ),
-        "usecols": "B:F,O,P,V",
-        "is_latest": True,  # Triggers the freshness-check / auto-download logic
-    },
-]
+DATA_DIR    = "data"
+LATEST_FILE = os.path.join(DATA_DIR, "latest-season.xlsx")
 
-# How long a cached local file is considered fresh before re-downloading
-LATEST_SEASON_STALE_AFTER = timedelta(days=3)
+# Columns to read from the Excel sheets.
+# Season 1 has a different layout from all later seasons.
+# Base cols: players, handicap, winner, date, ratings, win probability.
+# Z,AE (S1) / Y,AD (S2+): Pelaaja 1 & 2 rating muutos (Gor change).
+USECOLS_S1 = "B:E,G,P,Q,W,Z,AE"
+USECOLS    = "B:F,O,P,V,Y,AD"
 
 # Canonical column names used throughout the app
 COL_STRONGER = "Pelaaja vahvempi"
@@ -84,9 +42,13 @@ COL_RATING_S = "Rating vahv"
 COL_RATING_W = "Rating heik"
 COL_WIN_PROB = "Vahvemman voiton todennäköisyys"
 
+COL_GOR_S    = "Gor Δ (stronger)"
+COL_GOR_W    = "Gor Δ (weaker)"
+
 CANONICAL_COLS = [
     COL_STRONGER, COL_WEAKER, COL_HANDICAP, COL_WINNER,
     COL_DATE, COL_RATING_S, COL_RATING_W, COL_WIN_PROB,
+    COL_GOR_S, COL_GOR_W,
 ]
 
 # ══════════════════════════════════════════════════════════════════
@@ -103,79 +65,80 @@ alt.theme.enable("dark")
 
 
 # ══════════════════════════════════════════════════════════════════
-# Data loading
+# Data loading  (downloading is handled by update-data.yml)
 # ══════════════════════════════════════════════════════════════════
 
-def _download_file(url: str, local_path: str) -> None:
-    """Download a file from *url* and save it to *local_path*."""
-    response = requests.get(url)
-    response.raise_for_status()
-    with open(local_path, "wb") as fh:
-        fh.write(response.content)
+def _discover_season_files() -> list[tuple[int, str]]:
+    """Return (season_number, path) pairs for every season file, sorted by number.
 
-
-def _ensure_latest_season_fresh(cfg: dict) -> None:
-    """Re-download the latest-season file if it is stale or missing."""
-    local = cfg["local_path"]
-    url   = cfg["online_url"]
-    if os.path.exists(local):
-        try:
-            age = datetime.now() - datetime.fromtimestamp(os.path.getmtime(local))
-            if age > LATEST_SEASON_STALE_AFTER:
-                print(f"Local file is older than {LATEST_SEASON_STALE_AFTER}. Downloading…")
-                _download_file(url, local)
-        except Exception as exc:
-            print(f"Error checking online file: {exc}. Using the local file.")
-    else:
-        print("Local file not found. Downloading…")
-        _download_file(url, local)
-
-
-@st.cache_data(ttl=timedelta(hours=6), max_entries=1)
-def _load_season(cfg: dict) -> pd.DataFrame:
-    """Load, clean and return a single season's DataFrame.
-
-    Tries the local file first; falls back to the online URL.
-    Returns an empty DataFrame if both fail.
+    Scans DATA_DIR for goseason{N}.xlsx files plus latest-season.xlsx.
+    Season number for latest-season is one above the highest archived season.
     """
-    read_kwargs = dict(
-        engine="openpyxl",
-        sheet_name="Pelitulokset",
-        usecols=cfg["usecols"],
-        skiprows=3,
+    archived = sorted(
+        glob.glob(os.path.join(DATA_DIR, "goseason[0-9]*.xlsx"))
     )
-    for source_label, io in [("local", cfg["local_path"]), ("remote", cfg["online_url"])]:
+    season_nums = []
+    for path in archived:
+        basename = os.path.basename(path)
         try:
-            df = pd.read_excel(io=io, **read_kwargs)
-            break
-        except Exception as exc:
-            msg = f"Season {cfg['number']}: failed to load from {source_label} ({exc})."
-            if source_label == "local":
-                st.warning(msg + " Trying remote…")
-            else:
-                st.error(msg)
-                return pd.DataFrame()
+            num = int(basename.replace("goseason", "").replace(".xlsx", ""))
+            season_nums.append((num, path))
+        except ValueError:
+            pass
 
-    df = df.set_axis(CANONICAL_COLS, axis=1)
-    df.dropna(axis=0, inplace=True)
-    df[COL_DATE] = pd.to_datetime(df[COL_DATE], format="mixed", dayfirst=True)
-    return df
+    if os.path.exists(LATEST_FILE):
+        latest_num = (max(n for n, _ in season_nums) + 1) if season_nums else 1
+        season_nums.append((latest_num, LATEST_FILE))
+
+    return season_nums
 
 
-def load_all_seasons() -> pd.DataFrame:
-    """Load every season from SEASONS config, concat, and sort."""
+def _usecols_for(season_number: int) -> str:
+    """Return the correct usecols string for this season number."""
+    return USECOLS_S1 if season_number == 1 else USECOLS
+
+
+@st.cache_data(show_spinner="Loading season data…")
+def load_all_seasons(file_mtimes: dict[str, float]) -> pd.DataFrame:
+    """Load, clean, concat and sort all season files into one DataFrame.
+
+    *file_mtimes* is passed purely so Streamlit re-runs this function whenever
+    any data file changes on disk (mtime changes → cache miss).
+    """
+    read_kwargs = dict(engine="openpyxl", sheet_name="Pelitulokset", skiprows=3)
     frames = []
-    for cfg in SEASONS:
-        if cfg.get("is_latest"):
-            _ensure_latest_season_fresh(cfg)
-        frames.append(_load_season(cfg))
 
-    df = pd.concat(frames, ignore_index=True)
-    df.sort_values(by=[COL_DATE, COL_STRONGER, COL_WEAKER], ascending=True, inplace=True)
-    return df
+    for season_num, path in _discover_season_files():
+        try:
+            raw = pd.read_excel(io=path, usecols=_usecols_for(season_num), **read_kwargs)
+        except Exception as exc:
+            st.error(f"Season {season_num}: could not load '{path}': {exc}")
+            continue
+
+        raw = raw.set_axis(CANONICAL_COLS, axis=1)
+        raw.dropna(axis=0, inplace=True)
+        raw[COL_DATE] = pd.to_datetime(raw[COL_DATE], format="mixed", dayfirst=True)
+        frames.append(raw)
+
+    if not frames:
+        st.error("No season data found in the data/ directory.")
+        return pd.DataFrame(columns=CANONICAL_COLS)
+
+    combined = pd.concat(frames, ignore_index=True)
+    combined.sort_values(by=[COL_DATE, COL_STRONGER, COL_WEAKER], ascending=True, inplace=True)
+    return combined
 
 
-df = load_all_seasons()
+def _current_mtimes() -> dict[str, float]:
+    """Snapshot the mtime of every season file so cache can detect changes."""
+    return {
+        path: os.path.getmtime(path)
+        for _, path in _discover_season_files()
+        if os.path.exists(path)
+    }
+
+
+df = load_all_seasons(_current_mtimes())
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -204,13 +167,29 @@ with st.sidebar:
     selected_opponent = st.selectbox("Select opponent", available_opponents, index=0)
 
     # ── Date range ───────────────────────────────────────────────
-    min_date, max_date = df[COL_DATE].min(), df[COL_DATE].max()
-    selected_date_range = st.date_input("Select date range", [min_date, max_date])
+    all_dates = sorted(df[COL_DATE].dt.date.unique())
+    min_date, max_date = all_dates[0], all_dates[-1]
+
+    from_date = st.selectbox(
+        "From date",
+        options=all_dates,
+        index=0,
+        format_func=lambda d: d.strftime("%Y-%m-%d"),
+    )
+    # Default "To date" to the end of the data, but allow independent selection.
+    to_date = st.selectbox(
+        "To date",
+        options=all_dates,
+        index=len(all_dates) - 1,
+        format_func=lambda d: d.strftime("%Y-%m-%d"),
+    )
+    if to_date < from_date:
+        st.warning("'To date' is before 'From date' — no data will be shown.")
 
     # ── Filter data ──────────────────────────────────────────────
     filtered_df = df[
-        (df[COL_DATE] >= pd.to_datetime(selected_date_range[0]))
-        & (df[COL_DATE] <= pd.to_datetime(selected_date_range[1]))
+        (df[COL_DATE] >= pd.to_datetime(from_date))
+        & (df[COL_DATE] <= pd.to_datetime(to_date))
     ]
     if selected_player != "ALL PLAYERS":
         filtered_df = filtered_df[
@@ -252,7 +231,13 @@ with col[0]:
     st.altair_chart(make_performance_chart(filtered_df, selected_player), use_container_width=True)
 
     if selected_player != "ALL PLAYERS":
-        rating_chart = make_rating_timeline_chart(filtered_df, selected_player, selected_opponent)
+        # Pass the full df (date-filtered only) so both players' complete rating
+        # histories are shown, not just games they played against each other.
+        date_filtered_df = df[
+            (df[COL_DATE] >= pd.to_datetime(from_date))
+            & (df[COL_DATE] <= pd.to_datetime(to_date))
+        ]
+        rating_chart = make_rating_timeline_chart(date_filtered_df, selected_player, selected_opponent)
         if rating_chart:
             st.altair_chart(rating_chart, use_container_width=True)
 
@@ -286,27 +271,12 @@ with st.container():
 
     sorted_df = game_details_df.sort_values(by=COL_DATE, ascending=False).copy()
 
-    # ── Gor change column ───────────────────────────────────────
-    # For each row, show how the selected player's rating changed vs the previous game.
-    # For ALL PLAYERS view: show the stronger player's rating change.
-    if selected_player != "ALL PLAYERS":
-        player_games = sorted_df[
-            (sorted_df[COL_STRONGER] == selected_player)
-            | (sorted_df[COL_WEAKER] == selected_player)
-        ].copy()
-        player_games["_player_rating"] = player_games.apply(
-            lambda r: r[COL_RATING_S] if r[COL_STRONGER] == selected_player else r[COL_RATING_W],
-            axis=1,
-        )
-        player_games["Gor Change"] = player_games["_player_rating"].diff(-1)
-        sorted_df = sorted_df.join(player_games[["Gor Change"]], how="left")
-    else:
-        sorted_df["Gor Change"] = sorted_df[COL_RATING_S].diff(-1)
-
-    # Column order for display
+    # Column order: Date | Weekday | Rating(s) | GorΔ(s) | Player(s) | Win% | Rating(w) | GorΔ(w) | Player(w) | Handicap | Winner
     column_order = (
-        COL_DATE, "Weekday", COL_RATING_S, COL_STRONGER, COL_WIN_PROB,
-        COL_RATING_W, COL_WEAKER, COL_HANDICAP, COL_WINNER, "Gor Change",
+        COL_DATE, "Weekday",
+        COL_RATING_S, COL_GOR_S, COL_STRONGER, COL_WIN_PROB,
+        COL_RATING_W, COL_GOR_W, COL_WEAKER,
+        COL_HANDICAP, COL_WINNER,
     )
 
     st.dataframe(
@@ -314,19 +284,6 @@ with st.container():
         hide_index=False,
         column_order=column_order,
         column_config={
-            COL_STRONGER: "Player (stronger)",
-            COL_WIN_PROB: st.column_config.ProgressColumn(
-                "Stronger player's win %",
-                format="%.2f",
-                help="Win probability for the stronger-rated player, based on rating difference and handicap.",
-            ),
-            COL_WEAKER: "Player (weaker)",
-            COL_HANDICAP: st.column_config.NumberColumn(
-                "Handicap stones",
-                format="%d",
-                help="Number of handicap stones given to the weaker player.",
-            ),
-            COL_WINNER: "Winner",
             COL_DATE: st.column_config.DateColumn(
                 "Date",
                 format="YYYY-MM-DD",
@@ -335,21 +292,36 @@ with st.container():
             COL_RATING_S: st.column_config.NumberColumn(
                 "Rating (stronger)",
                 format="%.0f",
-                help="Club ELO-style rating of the stronger player before this game.",
+                help="Club Gor rating of the stronger player before this game.",
+            ),
+            COL_GOR_S: st.column_config.NumberColumn(
+                "Gor Δ (s.)",
+                format="%+.1f",
+                help="Rating change for the stronger player from this game.",
+            ),
+            COL_STRONGER: "Player (stronger)",
+            COL_WIN_PROB: st.column_config.ProgressColumn(
+                "Stronger player's win %",
+                format="%.2f",
+                help="Win probability for the stronger-rated player, based on rating difference and handicap.",
             ),
             COL_RATING_W: st.column_config.NumberColumn(
                 "Rating (weaker)",
                 format="%.0f",
-                help="Club ELO-style rating of the weaker player before this game.",
+                help="Club Gor rating of the weaker player before this game.",
             ),
-            "Gor Change": st.column_config.NumberColumn(
-                "Gor Δ",
-                format="%+.0f",
-                help=(
-                    "Rating change for the selected player (or stronger player in ALL PLAYERS view) "
-                    "from the previous game to this one. Positive = rating increased."
-                ),
+            COL_GOR_W: st.column_config.NumberColumn(
+                "Gor Δ (w.)",
+                format="%+.1f",
+                help="Rating change for the weaker player from this game.",
             ),
+            COL_WEAKER: "Player (weaker)",
+            COL_HANDICAP: st.column_config.NumberColumn(
+                "Handicap stones",
+                format="%d",
+                help="Number of handicap stones given to the weaker player.",
+            ),
+            COL_WINNER: "Winner",
         },
     )
 
