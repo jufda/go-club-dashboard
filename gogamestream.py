@@ -1,13 +1,11 @@
-#######################
-# Import libraries
-#######################
-import altair as alt
-from datetime import datetime, timedelta
+import glob
 import os
-import pandas as pd
-import requests
-import streamlit as st
 import warnings
+
+import altair as alt
+import pandas as pd
+import streamlit as st
+
 from charts import (
     make_performance_chart,
     make_rating_timeline_chart,
@@ -19,329 +17,381 @@ from charts import (
 
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
-#######################
+
+# ══════════════════════════════════════════════════════════════════
+# CONFIGURATION
+# ══════════════════════════════════════════════════════════════════
+
+DATA_DIR    = "data"
+LATEST_FILE = os.path.join(DATA_DIR, "latest-season.xlsx")
+
+# Columns to read from the Excel sheets.
+# Season 1 has a different layout from all later seasons.
+# Base cols: players, handicap, winner, date, ratings, win probability.
+# Z,AE (S1) / Y,AD (S2+): Pelaaja 1 & 2 rating muutos (Gor change).
+USECOLS_S1 = "B:E,G,P,Q,W,Z,AE"
+USECOLS    = "B:F,O,P,V,Y,AD"
+
+# Canonical column names used throughout the app
+COL_STRONGER = "Pelaaja vahvempi"
+COL_WEAKER   = "Pelaaja heikompi"
+COL_HANDICAP = "Tasoituskivet"
+COL_WINNER   = "Voittaja"
+COL_DATE     = "Päivämäärä"
+COL_RATING_S = "Rating vahv"
+COL_RATING_W = "Rating heik"
+COL_WIN_PROB = "Vahvemman voiton todennäköisyys"
+
+COL_GOR_S    = "Gor Δ (stronger)"
+COL_GOR_W    = "Gor Δ (weaker)"
+
+CANONICAL_COLS = [
+    COL_STRONGER, COL_WEAKER, COL_HANDICAP, COL_WINNER,
+    COL_DATE, COL_RATING_S, COL_RATING_W, COL_WIN_PROB,
+    COL_GOR_S, COL_GOR_W,
+]
+
+# ══════════════════════════════════════════════════════════════════
 # Page configuration
-#######################
+# ══════════════════════════════════════════════════════════════════
+
 st.set_page_config(
     page_title="Go club games dashboard",
     page_icon="🌑",
     layout="wide",
-    initial_sidebar_state="expanded")
-
+    initial_sidebar_state="expanded",
+)
 alt.theme.enable("dark")
 
-#######################
-# Load data
-#######################
-def download_file(url, local_path):
-    """Download a file from a URL and save it locally."""
-    response = requests.get(url)
-    response.raise_for_status()  # Raise an error for bad responses
-    with open(local_path, 'wb') as file:
-        file.write(response.content)
 
-@st.cache_data(ttl=timedelta(hours=6), max_entries=1)
-def load_season_data(season_number, local_path, online_url, usecols, skiprows=3):
+# ══════════════════════════════════════════════════════════════════
+# Data loading  (downloading is handled by update-data.yml)
+# ══════════════════════════════════════════════════════════════════
+
+def _discover_season_files() -> list[tuple[int, str]]:
+    """Return (season_number, path) pairs for every season file, sorted by number.
+
+    Scans DATA_DIR for goseason{N}.xlsx files plus latest-season.xlsx.
+    Season number for latest-season is one above the highest archived season.
     """
-    Load and clean data for a specific season.
-    
-    Args:
-        season_number (int): The season number (1, 2, or 3)
-        local_path (str): Path to the local Excel file
-        online_url (str): URL to the online Excel file
-        usecols (str): Columns to use from the Excel file
-        skiprows (int): Number of rows to skip
-        
-    Returns:
-        pd.DataFrame: Cleaned dataframe for the season
-    """
-    try:
-        # Try loading from local file first
-        df = pd.read_excel(
-            io=local_path,
-            engine="openpyxl",
-            sheet_name="Pelitulokset",
-            usecols=usecols,
-            skiprows=skiprows
-        )
-    except Exception as e:
-        st.warning(f"Failed to load data from local source for Season {season_number}. Using remote file. Error: {e}")
+    archived = sorted(
+        glob.glob(os.path.join(DATA_DIR, "goseason[0-9]*.xlsx"))
+    )
+    season_nums = []
+    for path in archived:
+        basename = os.path.basename(path)
         try:
-            df = pd.read_excel(
-                io=online_url,
-                engine="openpyxl",
-                sheet_name="Pelitulokset",
-                usecols=usecols,
-                skiprows=skiprows
-            )
-        except Exception as e:
-            st.error(f"Failed to load data for Season {season_number}. Error: {e}")
-            return pd.DataFrame()  # Return empty DataFrame if both attempts fail
-    
-    # Clean the data
-    df = df.set_axis(['Pelaaja vahvempi', 'Pelaaja heikompi', 'Tasoituskivet', 'Voittaja', 
-                     'Päivämäärä', 'Rating vahv', 'Rating heik', 'Vahvemman voiton todennäköisyys'], axis=1)
-    df.dropna(axis=0, inplace=True)
-    df['Päivämäärä'] = pd.to_datetime(df['Päivämäärä'], format='mixed', dayfirst=True)
-    
-    return df
+            num = int(basename.replace("goseason", "").replace(".xlsx", ""))
+            season_nums.append((num, path))
+        except ValueError:
+            pass
 
-# Load data for each season
-df1 = load_season_data(
-    season_number=1,
-    local_path='data/goseason1.xlsx',
-    online_url="https://docs.google.com/spreadsheets/d/1NImVfaJ3z7K_hrlvFsC-HmmtXIj7x2ZVcIZthPf2IYs/export?format=xlsx",
-    usecols="B:E,G,P,Q,W"
-)
+    if os.path.exists(LATEST_FILE):
+        latest_num = (max(n for n, _ in season_nums) + 1) if season_nums else 1
+        season_nums.append((latest_num, LATEST_FILE))
 
-df2 = load_season_data(
-    season_number=2,
-    local_path='data/goseason2.xlsx',
-    online_url="https://docs.google.com/spreadsheets/d/18qYVirc-_ni1I6myhICqA3hMgxP9pfvuBNJ0oLbljIE/export?format=xlsx",
-    usecols="B:F,O,P,V"
-)
+    return season_nums
 
-df3 = load_season_data(
-    season_number=3,
-    local_path='data/goseason3.xlsx',
-    online_url="https://docs.google.com/spreadsheets/d/1ktWkll-JubPHH3CSbcqO22WaJci2yAaQSK7-UKG8do8/export?format=xlsx",
-    usecols="B:F,O,P,V"
-)
 
-df4 = load_season_data(
-    season_number=4,
-    local_path='data/goseason4.xlsx',
-    online_url="https://docs.google.com/spreadsheets/d/1Mqn6RuWFyJTktBnJCfhOPngO8BUvB_K8rS_M8NdTSSE/export?format=xlsx",
-    usecols="B:F,O,P,V"
-)
+def _usecols_for(season_number: int) -> str:
+    """Return the correct usecols string for this season number."""
+    return USECOLS_S1 if season_number == 1 else USECOLS
 
-# Handle current season with special logic for file freshness
-local_file = "data/latest-season.xlsx"
-online_file_url = "https://docs.google.com/spreadsheets/d/1IjXQJSGUma8Deer0gT5uDDi0-VaDP3YFemMzHV1HLmA/export?format=xlsx"
 
-if os.path.exists(local_file):
-    try:
-        last_modified_time = datetime.fromtimestamp(os.path.getmtime(local_file))
-        current_time = datetime.now()
+@st.cache_data(show_spinner="Loading season data…")
+def load_all_seasons(file_mtimes: dict[str, float]) -> pd.DataFrame:
+    """Load, clean, concat and sort all season files into one DataFrame.
 
-        if current_time - last_modified_time > timedelta(days=3):
-            print("Local file is older than 3 days. Downloading the latest version...")
-            download_file(online_file_url, local_file)
-    except Exception as e:
-        print(f"Error checking online file: {e}. Using the local file.")
-else:
-    print("Local file not found. Downloading the latest version...")
-    download_file(online_file_url, local_file)
+    *file_mtimes* is passed purely so Streamlit re-runs this function whenever
+    any data file changes on disk (mtime changes → cache miss).
+    """
+    read_kwargs = dict(engine="openpyxl", sheet_name="Pelitulokset", skiprows=3)
+    frames = []
 
-df5 = load_season_data(
-    season_number=5,
-    local_path="data/latest-season.xlsx",
-    online_url="data/goseason5.xlsx",  # Fallback to local backup
-    usecols="B:F,O,P,V"
-)
+    for season_num, path in _discover_season_files():
+        try:
+            raw = pd.read_excel(io=path, usecols=_usecols_for(season_num), **read_kwargs)
+        except Exception as exc:
+            st.error(f"Season {season_num}: could not load '{path}': {exc}")
+            continue
 
-# Combine all seasons
-df = pd.concat([df1, df2, df3, df4, df5], ignore_index=True)
-df.sort_values(by=['Päivämäärä', 'Pelaaja vahvempi', 'Pelaaja heikompi'], ascending=True, inplace=True)
+        raw = raw.set_axis(CANONICAL_COLS, axis=1)
+        raw.dropna(axis=0, inplace=True)
+        raw[COL_DATE] = pd.to_datetime(raw[COL_DATE], format="mixed", dayfirst=True)
+        frames.append(raw)
 
-#######################
-# Sidebar
-#######################
+    if not frames:
+        st.error("No season data found in the data/ directory.")
+        return pd.DataFrame(columns=CANONICAL_COLS)
+
+    combined = pd.concat(frames, ignore_index=True)
+    combined.sort_values(by=[COL_DATE, COL_STRONGER, COL_WEAKER], ascending=True, inplace=True)
+    return combined
+
+
+def _current_mtimes() -> dict[str, float]:
+    """Snapshot the mtime of every season file so cache can detect changes."""
+    return {
+        path: os.path.getmtime(path)
+        for _, path in _discover_season_files()
+        if os.path.exists(path)
+    }
+
+
+df = load_all_seasons(_current_mtimes())
+
+
+# ══════════════════════════════════════════════════════════════════
+# Sidebar – filters
+# ══════════════════════════════════════════════════════════════════
+
 with st.sidebar:
-    st.title('Go club games dashboard')
+    st.title("Go club games dashboard")
 
-    # Player selection
-    players = df['Pelaaja vahvempi'].unique().tolist() + df['Pelaaja heikompi'].unique().tolist()
-    players = sorted(set(players))
-    players.insert(0, "ALL PLAYERS")  # Add "ALL PLAYERS" at the top of the list
-    selected_player = st.selectbox('Select player', players, index=0)  # Default to "ALL PLAYERS"
+    # ── Player selector ──────────────────────────────────────────
+    all_players = sorted(set(df[COL_STRONGER].unique()) | set(df[COL_WEAKER].unique()))
+    all_players.insert(0, "ALL PLAYERS")
+    selected_player = st.selectbox("Select player", all_players, index=0)
 
-    # Opponent selection - only show players who have played against the selected player
+    # ── Opponent selector (only players who faced selected_player) ─
     if selected_player != "ALL PLAYERS":
-        # Get all games where the selected player participated
-        player_games = df[
-            (df['Pelaaja vahvempi'] == selected_player) |
-            (df['Pelaaja heikompi'] == selected_player)
-        ]
-        # Get unique opponents from these games
+        player_rows = df[(df[COL_STRONGER] == selected_player) | (df[COL_WEAKER] == selected_player)]
         opponents = set()
-        for _, row in player_games.iterrows():
-            if row['Pelaaja vahvempi'] == selected_player:
-                opponents.add(row['Pelaaja heikompi'])
-            else:
-                opponents.add(row['Pelaaja vahvempi'])
-        available_opponents = sorted(list(opponents))
+        for _, row in player_rows.iterrows():
+            opponents.add(row[COL_WEAKER] if row[COL_STRONGER] == selected_player else row[COL_STRONGER])
+        available_opponents = sorted(opponents)
     else:
         available_opponents = []
-    
-    available_opponents.insert(0, "NONE")  # Option to not select an opponent
-    selected_opponent = st.selectbox('Select opponent', available_opponents, index=0)
 
-    # Date range selection
-    min_date = df['Päivämäärä'].min()
-    max_date = df['Päivämäärä'].max()
-    selected_date_range = st.date_input('Select date range', [min_date, max_date])
+    available_opponents.insert(0, "NONE")
+    selected_opponent = st.selectbox("Select opponent", available_opponents, index=0)
 
-    # Filter data based on selections
-    filtered_df = df[(df['Päivämäärä'] >= pd.to_datetime(selected_date_range[0])) &
-                     (df['Päivämäärä'] <= pd.to_datetime(selected_date_range[1]))]
+    # ── Date range ───────────────────────────────────────────────
+    all_dates = sorted(df[COL_DATE].dt.date.unique())
+    min_date, max_date = all_dates[0], all_dates[-1]
 
+    from_date = st.selectbox(
+        "From date",
+        options=all_dates,
+        index=0,
+        format_func=lambda d: d.strftime("%Y-%m-%d"),
+    )
+    # Default "To date" to the end of the data, but allow independent selection.
+    to_date = st.selectbox(
+        "To date",
+        options=all_dates,
+        index=len(all_dates) - 1,
+        format_func=lambda d: d.strftime("%Y-%m-%d"),
+    )
+    if to_date < from_date:
+        st.warning("'To date' is before 'From date' — no data will be shown.")
+
+    # ── Filter data ──────────────────────────────────────────────
+    filtered_df = df[
+        (df[COL_DATE] >= pd.to_datetime(from_date))
+        & (df[COL_DATE] <= pd.to_datetime(to_date))
+    ]
     if selected_player != "ALL PLAYERS":
-        filtered_df = filtered_df[(filtered_df['Pelaaja vahvempi'] == selected_player) |
-                                  (filtered_df['Pelaaja heikompi'] == selected_player)]
+        filtered_df = filtered_df[
+            (filtered_df[COL_STRONGER] == selected_player)
+            | (filtered_df[COL_WEAKER] == selected_player)
+        ]
 
-    # Add a column for the day of the week
-    filtered_df['Weekday'] = df['Päivämäärä'].dt.day_name()
+    # Weekday column
+    filtered_df = filtered_df.copy()
+    filtered_df["Weekday"] = filtered_df[COL_DATE].dt.day_name()
 
-    # Calculate win probability for the selected player if one is selected
-    if selected_player:
-        filtered_df['Selected Player Win Probability'] = filtered_df.apply(
-            lambda row: row['Vahvemman voiton todennäköisyys'] if row['Pelaaja vahvempi'] == selected_player
-            else 1 - row['Vahvemman voiton todennäköisyys'], axis=1
+    # Per-player win probability
+    if selected_player and selected_player != "ALL PLAYERS":
+        filtered_df["Selected Player Win Probability"] = filtered_df.apply(
+            lambda r: r[COL_WIN_PROB]
+            if r[COL_STRONGER] == selected_player
+            else 1 - r[COL_WIN_PROB],
+            axis=1,
         )
     else:
-        filtered_df['Selected Player Win Probability'] = None
+        filtered_df["Selected Player Win Probability"] = None
 
-    # Create a separate dataframe for game details that can be filtered by opponent
+    # ── Game details: optionally narrow to head-to-head ─────────
     game_details_df = filtered_df.copy()
     if selected_opponent != "NONE":
         game_details_df = game_details_df[
-            ((game_details_df['Pelaaja vahvempi'] == selected_player) & (game_details_df['Pelaaja heikompi'] == selected_opponent)) |
-            ((game_details_df['Pelaaja vahvempi'] == selected_opponent) & (game_details_df['Pelaaja heikompi'] == selected_player))
+            ((game_details_df[COL_STRONGER] == selected_player) & (game_details_df[COL_WEAKER] == selected_opponent))
+            | ((game_details_df[COL_STRONGER] == selected_opponent) & (game_details_df[COL_WEAKER] == selected_player))
         ]
 
-#######################
-# Dashboard Top
-#######################
-col = st.columns((8, 1.5, 1.5), gap='medium')
+
+# ══════════════════════════════════════════════════════════════════
+# Dashboard top  (timeline + rating chart | win/loss | expected)
+# ══════════════════════════════════════════════════════════════════
+
+col = st.columns((8, 1.5, 1.5), gap="medium")
 
 with col[0]:
-    performance_chart = make_performance_chart(filtered_df, selected_player)
-    st.altair_chart(performance_chart, use_container_width=True)
-    
-    # Add rating timeline chart if a specific player is selected
+    st.altair_chart(make_performance_chart(filtered_df, selected_player), use_container_width=True)
+
     if selected_player != "ALL PLAYERS":
-        rating_chart = make_rating_timeline_chart(filtered_df, selected_player, selected_opponent)
+        # Pass the full df (date-filtered only) so both players' complete rating
+        # histories are shown, not just games they played against each other.
+        date_filtered_df = df[
+            (df[COL_DATE] >= pd.to_datetime(from_date))
+            & (df[COL_DATE] <= pd.to_datetime(to_date))
+        ]
+        rating_chart = make_rating_timeline_chart(date_filtered_df, selected_player, selected_opponent)
         if rating_chart:
             st.altair_chart(rating_chart, use_container_width=True)
 
 with col[1]:
-    st.markdown('#### All games')
-    win_loss_chart = make_win_loss_chart(filtered_df, selected_player)
-    st.altair_chart(win_loss_chart, use_container_width=True)
-    
-    # Add head-to-head win/loss chart if an opponent is selected
+    st.markdown("#### All games")
+    st.altair_chart(make_win_loss_chart(filtered_df, selected_player), use_container_width=True)
+
     if selected_player != "ALL PLAYERS" and selected_opponent != "NONE":
-        h2h_win_loss_chart = make_head_to_head_win_loss_chart(filtered_df, selected_player, selected_opponent)
-        st.altair_chart(h2h_win_loss_chart, use_container_width=True)
+        st.altair_chart(
+            make_head_to_head_win_loss_chart(filtered_df, selected_player, selected_opponent),
+            use_container_width=True,
+        )
 
 with col[2]:
-    st.markdown('#### All wins')
-    expected_vs_actual_chart = make_expected_vs_actual_chart(filtered_df, selected_player)
-    st.altair_chart(expected_vs_actual_chart, use_container_width=True)
-    
-    # Add head-to-head expected vs actual wins chart if an opponent is selected
-    if selected_player != "ALL PLAYERS" and selected_opponent != "NONE":
-        h2h_expected_vs_actual_chart = make_head_to_head_expected_vs_actual_chart(filtered_df, selected_player, selected_opponent)
-        st.altair_chart(h2h_expected_vs_actual_chart, use_container_width=True)
+    st.markdown("#### All wins")
+    st.altair_chart(make_expected_vs_actual_chart(filtered_df, selected_player), use_container_width=True)
 
-#######################
-# Dashboard Main
-#######################
+    if selected_player != "ALL PLAYERS" and selected_opponent != "NONE":
+        st.altair_chart(
+            make_head_to_head_expected_vs_actual_chart(filtered_df, selected_player, selected_opponent),
+            use_container_width=True,
+        )
+
+
+# ══════════════════════════════════════════════════════════════════
+# Dashboard main – Game details table
+# ══════════════════════════════════════════════════════════════════
+
 with st.container():
-    st.markdown('#### Game details')
-    sorted_df = game_details_df.sort_values(by="Päivämäärä", ascending=False)
+    st.markdown("#### Game details")
+
+    sorted_df = game_details_df.sort_values(by=COL_DATE, ascending=False).copy()
+
+    # Column order: Date | Weekday | Rating(s) | GorΔ(s) | Player(s) | Win% | Rating(w) | GorΔ(w) | Player(w) | Handicap | Winner
+    column_order = (
+        COL_DATE, "Weekday",
+        COL_RATING_S, COL_GOR_S, COL_STRONGER, COL_WIN_PROB,
+        COL_RATING_W, COL_GOR_W, COL_WEAKER,
+        COL_HANDICAP, COL_WINNER,
+    )
+
     st.dataframe(
         sorted_df,
         hide_index=False,
-        column_order=("Päivämäärä", "Weekday", "Rating vahv", "Pelaaja vahvempi", "Vahvemman voiton todennäköisyys",
-                      "Rating heik","Pelaaja heikompi", "Tasoituskivet", "Voittaja"),
+        column_order=column_order,
         column_config={
-            "Pelaaja vahvempi": "Player (stronger)",
-            "Vahvemman voiton todennäköisyys": st.column_config.ProgressColumn(
-                "Stronger player's win %", format="%.2f"
+            COL_DATE: st.column_config.DateColumn(
+                "Date",
+                format="YYYY-MM-DD",
+                help="Date the club game was played.",
             ),
-            "Pelaaja heikompi": "Player (weaker)",
-            "Tasoituskivet": st.column_config.NumberColumn(
-                "Handicap stones", format="%d"
+            COL_RATING_S: st.column_config.NumberColumn(
+                "Rating (stronger)",
+                format="%.0f",
+                help="Club Gor rating of the stronger player before this game.",
             ),
-            "Voittaja": "Winner",  # Rename column
-            "Päivämäärä": st.column_config.DateColumn(
-                "Date", format="YYYY-MM-DD"
+            COL_GOR_S: st.column_config.NumberColumn(
+                "Gor Δ (s.)",
+                format="%+.1f",
+                help="Rating change for the stronger player from this game.",
             ),
-            "Rating vahv": st.column_config.NumberColumn(
-                "Rating (s.)", format="%.0f"
+            COL_STRONGER: "Player (stronger)",
+            COL_WIN_PROB: st.column_config.ProgressColumn(
+                "Stronger player's win %",
+                format="%.2f",
+                help="Win probability for the stronger-rated player, based on rating difference and handicap.",
             ),
-            "Rating heik": st.column_config.NumberColumn(
-                "Rating (w.)", format="%.0f"
+            COL_RATING_W: st.column_config.NumberColumn(
+                "Rating (weaker)",
+                format="%.0f",
+                help="Club Gor rating of the weaker player before this game.",
             ),
-
-        }
-
+            COL_GOR_W: st.column_config.NumberColumn(
+                "Gor Δ (w.)",
+                format="%+.1f",
+                help="Rating change for the weaker player from this game.",
+            ),
+            COL_WEAKER: "Player (weaker)",
+            COL_HANDICAP: st.column_config.NumberColumn(
+                "Handicap stones",
+                format="%d",
+                help="Number of handicap stones given to the weaker player.",
+            ),
+            COL_WINNER: "Winner",
+        },
     )
 
-#######################
+
+# ══════════════════════════════════════════════════════════════════
 # Bottom info
-#######################
-    with st.expander('About the stats for the selected player', expanded=False):
-        st.write('''
-            - **Player's club games timeline**: Displays the activity in club games over time. 
-            - **Club games timeline (ALL PLAYERS)**: Counts both players for all games (total number is amount of games played x2).
-            - **Games**: Shows the number of wins and losses. ALL PLAYERS view shows stats based on the stronger-by-rating player of each game.
-            - **Wins**: Shows the number of expected wins based or players' ratings and handicap stones compared to actual wins. 
-            - **Wins (ALL PLAYERS)**: Shows the stats based on the stronger-by-rating player of each game.
-            - **Player's rating timeline**: Shows player's club rating over time.
-            - **Game details**: Lists all player's recorded club games and provides statistics.
-            ''')
+# ══════════════════════════════════════════════════════════════════
 
+with st.expander("About the stats for the selected player", expanded=False):
+    st.write("""
+- **Player's club games timeline**: Activity in club games over time. Bars are coloured by weekday.
+- **Club games timeline (ALL PLAYERS)**: Counts both players per game (total = games × 2).
+- **Games**: Wins and losses. ALL PLAYERS view uses the higher-rated player of each game.
+- **Wins**: Expected wins (from ratings + handicap) vs actual wins.
+- **Wins (ALL PLAYERS)**: Based on the stronger-rated player of each game.
+- **Player's rating timeline**: Club Gor rating over time. The diamond ◆ marks the latest game.
+- **Game details**: All recorded club games with statistics, including rating change per game (Gor Δ).
+""")
 
-    with st.expander('Update history', expanded=False):
-        st.write("""
+with st.expander("Update history", expanded=False):
+    st.write("""
+#### Updates 2025 (current):
+1. **Gor Δ column**: Rating change per game now shown in the game details table.
+2. **Latest-point marker**: The rating graph now draws a highlighted diamond at the most recent game.
+3. **Hover tooltips**: All charts now show richer hover information (weekday, opponent, formatted values).
+4. **Season config block**: Adding a new season now requires editing only the SEASONS list at the top of the file.
+5. **Code clarity**: Shared chart helpers, named constants for columns, cleaner separation of concerns.
+
 #### Updates 21.9.2025:
 1. **4th season added**: New club game season began on September 8th.
 2. **Updated about section**: To include all parts of the dashboard.
-3. **New colours based on weekdays**: Shows each weekday as a specific colour (instead of basing colours on players).
-        
+3. **New colours based on weekdays**: Shows each weekday as a specific colour.
+
 #### Updates 26.5.2025:
 1. **Opponent selection**: Shows only the games between players.
 2. **Performance optimization**: Caches the data.
 3. **Face-to-face comparison**: Compare the rating timelines of two players.
 4. **Face-to-face wins**: Bar charts for head-to-head comparison.
-        
+
 #### Updates 23.5.2025:
-1. **Rating graph**: shows player's rating over time
-2. **Download optimization**: checks if the local file is older than 3 days before downloading a new version.
+1. **Rating graph**: shows player's rating over time.
+2. **Download optimization**: checks if the local file is older than 3 days before downloading.
 3. **Included all players to timeline**: not just half of them.
 4. **Ordered game details**: newest first.
 5. **Decimal formatting**: for expected wins and rating.
 
 #### Updates 15.5.2025:
-1. **Timeline update**: shows opponents
-2. **Added expected wins**: and comparison to actual wins
-3. **Rearranged dame details**: win probability visualized and column order improved 
-4. **Added statistics for ALL PLAYERS**: Win/loss and expected/actual wins based on the higher-rating-player of each game.
+1. **Timeline update**: shows opponents.
+2. **Added expected wins**: and comparison to actual wins.
+3. **Rearranged game details**: win probability visualized and column order improved.
+4. **Added statistics for ALL PLAYERS**.
 
 #### Updates 14.5.2025:
-1. **Added third season games**
-2. **Included more data**: player's ratings, expected win %s
-3. **Updated timeline**: Game colour by winner, barchart based on played game dates
+1. **Added third season games**.
+2. **Included more data**: player's ratings, expected win %.
+3. **Updated timeline**: Game colour by winner, barchart based on played game dates.
 
 #### Prototype 17.2.2025:
-1. **Data Loading from online spreadsheets**: The code now loads and cleans the Go club games data from the online Excel files.
-2. **Sidebar**: The sidebar allows users to select a player and a date range to filter the data.
-3. **Timeline**: A chart showing games played by the selected player over time.
-4. **Win/Loss Ratio**: A bar chart showing the number of wins and losses for the selected player.
-5. **Recent games**: Displays the 10 most recent games involving the selected player.
+1. **Data Loading from online spreadsheets**.
+2. **Sidebar**: player and date range filter.
+3. **Timeline**, **Win/Loss Ratio**, **Recent games**.
 
-#### Next steps in the further development:
-- **Head2head**: Win%, games played against each other. y=games x=player 
-- **Estimations with confidence intervals**: Calculate the error margins based on the amount of games so far.
+#### Next steps:
 - **Handicap analysis**: How players perform with handicap stones.
-- **Translation**: Offer both Finnish and English
-- **Fix bugs**: Error while selecting date range, nicer loading
-- **Player selection**: From the game details table.
-- **All players'** timeline: Player colour based on the amount of games
+- **Confidence intervals**: Error margins based on games played so far.
+- **Translation**: Finnish / English toggle.
+- **Player selection from game details table**.
+- **All players' timeline**: Player colour based on amount of games.
 - **Accessibility testing**: Colour-blindness, contrast, alt-texts, keyboard navigation.
-- **Visual look**: Include go art, board, stones and cups to create a fitting theme.
-- **Opponent rating graph**: Currently only shows the "selected" vs "opponent" in the graph for the opponent.
+- **Visual look**: Go art, board, stones, cups.
+- **Opponent rating graph**: Show both players' full history when opponent is selected.
+- **Head-to-head summary stats**: Win %, average Gor change, handicap breakdown.
 """)
