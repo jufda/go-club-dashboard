@@ -24,13 +24,14 @@ jobs:
         id: season_check
         run: |
           python - <<'EOF'
+          import io
           import os
           import requests
+          import shutil
           from datetime import datetime
           from openpyxl import load_workbook
 
           LOCAL = "data/latest-season.xlsx"
-          TMP   = LOCAL + ".tmp"
           URL   = "https://docs.google.com/spreadsheets/d/1IjXQJSGUma8Deer0gT5uDDi0-VaDP3YFemMzHV1HLmA/export?format=xlsx"
 
           # Current season number is one above the highest archived goseason file
@@ -45,8 +46,8 @@ jobs:
           print(f"Downloading latest season data (current season: {current_season})...")
           r = requests.get(URL, timeout=60)
           r.raise_for_status()
-          with open(TMP, "wb") as fh:
-              fh.write(r.content)
+          # Keep bytes in memory — openpyxl does not support .tmp file extensions
+          xlsx_bytes = r.content
 
           # ── Read season-end date and days remaining from "Hall of heroes" tab ──
           # Tab 4 "Hall of heroes":
@@ -54,7 +55,7 @@ jobs:
           #   Row 4, col 11  →  days remaining (number)
           #   Row 3, col 13  →  "Kausi loppuu" label    →  verified as sanity check
           #   Row 4, col 13  →  season-end date (Finnish format d.m.y)
-          wb = load_workbook(TMP, read_only=True, data_only=True)
+          wb = load_workbook(io.BytesIO(xlsx_bytes), read_only=True, data_only=True)
           sheet_names = wb.sheetnames
           print(f"Sheets found: {sheet_names}")
 
@@ -101,22 +102,20 @@ jobs:
           print(f"Season ends: {end_date}  |  Today (UTC): {today}  |  Days left: {days_remaining}")
           print(f"Season rolled over: {rolled_over}")
 
-          # ── Replace local file with the fresh download ────────────────────
+          # ── Write files from in-memory bytes ─────────────────────────────
           if rolled_over:
               archive = f"data/goseason{current_season}.xlsx"
               if os.path.exists(LOCAL):
                   print(f"Archiving current season as {archive}")
                   os.replace(LOCAL, archive)
               else:
-                  print(f"No existing file to archive; saving download as {archive}")
-                  os.replace(TMP, archive)
-                  # Put the same file as latest-season too so the app keeps working
-                  import shutil
+                  print(f"No existing file to archive; writing download as {archive}")
+                  with open(archive, "wb") as fh:
+                      fh.write(xlsx_bytes)
                   shutil.copy(archive, LOCAL)
           else:
-              if os.path.exists(LOCAL):
-                  os.remove(LOCAL)
-              os.replace(TMP, LOCAL)
+              with open(LOCAL, "wb") as fh:
+                  fh.write(xlsx_bytes)
 
           # ── Expose step outputs for the commit step ───────────────────────
           with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
