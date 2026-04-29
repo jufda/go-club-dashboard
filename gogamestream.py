@@ -339,15 +339,19 @@ with st.expander("About the stats for the selected player", expanded=False):
 - **Wins (ALL PLAYERS)**: Based on the stronger-rated player of each game.
 - **Player's rating timeline**: Club Gor rating over time. The diamond ◆ marks the latest game.
 - **Game details**: All recorded club games with statistics, including rating change per game (Gor Δ).
+
+**ATTENTION**: 
+
+**New games after the season end date should be added to the new season's spreadsheet with the same URL as the old season (old seasons should be moved and archived.**
 """)
 
 with st.expander("Update history", expanded=False):
     st.write("""
-#### Updates 2025 (current):
-1. **Gor Δ column**: Rating change per game now shown in the game details table.
-2. **Latest-point marker**: The rating graph now draws a highlighted diamond at the most recent game.
-3. **Hover tooltips**: All charts now show richer hover information (weekday, opponent, formatted values).
-4. **Season config block**: Adding a new season now requires editing only the SEASONS list at the top of the file.
+#### Updates 28.4.2026:
+1. **Gor change column**: Shows rating change per game in the game details table.
+2. **Latest gor**: The rating graph now draws a highlighted diamond at the most recent game.
+3. **Hover tooltips**: All charts show simple info.
+4. **Seasons change automatically** when the season's spreadsheet date comes up.
 5. **Code clarity**: Shared chart helpers, named constants for columns, cleaner separation of concerns.
 
 #### Updates 21.9.2025:
