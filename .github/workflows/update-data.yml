@@ -85,8 +85,14 @@ jobs:
               )
 
           # Parse days remaining
+          # The cell may hold a plain int or a Finnish string like '124 päivää'.
+          import re as _re
           try:
-              days_remaining = int(days_left)
+              days_str = str(days_left).strip() if days_left is not None else ""
+              m = _re.match(r"(\d+)", days_str)
+              if m is None:
+                  raise ValueError("no leading digits")
+              days_remaining = int(m.group(1))
           except (TypeError, ValueError):
               raise ValueError(f"Could not parse days remaining as integer: {days_left!r}")
 
