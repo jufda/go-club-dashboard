@@ -28,7 +28,7 @@ jobs:
           import os
           import requests
           import shutil
-          from datetime import datetime
+          from datetime import UTC, datetime
           from openpyxl import load_workbook
 
           LOCAL = "data/latest-season.xlsx"
@@ -102,7 +102,7 @@ jobs:
           else:
               end_date = datetime.strptime(str(season_end).strip(), "%d.%m.%Y").date()
 
-          today = datetime.utcnow().date()
+          today = datetime.now(UTC).date()
           rolled_over = end_date < today
 
           print(f"Season ends: {end_date}  |  Today (UTC): {today}  |  Days left: {days_remaining}")
