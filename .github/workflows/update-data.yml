@@ -17,17 +17,21 @@ jobs:
         with:
           python-version: '3.14'
 
-      - name: Install requests
-        run: pip install requests
+      - name: Install dependencies
+        run: pip install requests openpyxl
 
       - name: Download and check latest season data
         id: season_check
         run: |
           python - <<'EOF'
-          import os, requests
+          import io
+          import os
+          import requests
+          import shutil
+          from datetime import UTC, datetime
+          from openpyxl import load_workbook
 
           LOCAL = "data/latest-season.xlsx"
-          TMP   = LOCAL + ".tmp"
           URL   = "https://docs.google.com/spreadsheets/d/1IjXQJSGUma8Deer0gT5uDDi0-VaDP3YFemMzHV1HLmA/export?format=xlsx"
 
           # Current season number is one above the highest archived goseason file
@@ -42,31 +46,88 @@ jobs:
           print(f"Downloading latest season data (current season: {current_season})...")
           r = requests.get(URL, timeout=60)
           r.raise_for_status()
-          with open(TMP, "wb") as fh:
-              fh.write(r.content)
+          # Keep bytes in memory — openpyxl does not support .tmp file extensions
+          xlsx_bytes = r.content
 
-          new_size = os.path.getsize(TMP)
-          rolled_over = False
+          # ── Read season-end date and days remaining from "Hall of heroes" tab ──
+          # Tab 4 "Hall of heroes":
+          #   Row 3, col 11 ("Kautta jäljellä" label)  →  verified as sanity check
+          #   Row 4, col 11  →  days remaining (number)
+          #   Row 3, col 13  →  "Kausi loppuu" label    →  verified as sanity check
+          #   Row 4, col 13  →  season-end date (Finnish format d.m.y)
+          wb = load_workbook(io.BytesIO(xlsx_bytes), read_only=True, data_only=True)
+          sheet_names = wb.sheetnames
+          print(f"Sheets found: {sheet_names}")
 
-          if os.path.exists(LOCAL):
-              old_size = os.path.getsize(LOCAL)
-              if new_size < old_size:
-                  archive = f"data/goseason{current_season}.xlsx"
-                  print(f"Season rollover detected ({new_size} B < {old_size} B): archiving as {archive}")
-                  os.replace(LOCAL, archive)
-                  rolled_over = True
-              else:
-                  print(f"Updating latest-season.xlsx ({old_size} B -> {new_size} B)")
-                  os.remove(LOCAL)
+          HOH_INDEX = 3  # 0-based index of the 4th tab
+          hoh = wb.worksheets[HOH_INDEX]
+          print(f"Reading from sheet: '{hoh.title}'")
+
+          label_days   = hoh.cell(row=3, column=11).value
+          days_left    = hoh.cell(row=4, column=11).value
+          label_end    = hoh.cell(row=3, column=13).value
+          season_end   = hoh.cell(row=4, column=13).value
+          wb.close()
+
+          print(f"  [{label_days!r}] days remaining: {days_left!r}")
+          print(f"  [{label_end!r}] season end date: {season_end!r}")
+
+          # Sanity-check that we are reading the right cells
+          if label_days is None or "jäljellä" not in str(label_days):
+              raise ValueError(
+                  f"Expected 'Kautta jäljellä' in Hall of heroes row 3 col 11, "
+                  f"got {label_days!r}. Check sheet layout."
+              )
+          if label_end is None or "loppuu" not in str(label_end):
+              raise ValueError(
+                  f"Expected 'Kausi loppuu' in Hall of heroes row 3 col 13, "
+                  f"got {label_end!r}. Check sheet layout."
+              )
+
+          # Parse days remaining
+          # The cell may hold a plain int or a Finnish string like '124 päivää'.
+          import re as _re
+          try:
+              days_str = str(days_left).strip() if days_left is not None else ""
+              m = _re.match(r"(\d+)", days_str)
+              if m is None:
+                  raise ValueError("no leading digits")
+              days_remaining = int(m.group(1))
+          except (TypeError, ValueError):
+              raise ValueError(f"Could not parse days remaining as integer: {days_left!r}")
+
+          # Parse season-end date (Finnish d.m.y, e.g. "31.5.2025")
+          if isinstance(season_end, datetime):
+              end_date = season_end.date()
           else:
-              print("No existing file found, saving fresh download.")
+              end_date = datetime.strptime(str(season_end).strip(), "%d.%m.%Y").date()
 
-          os.replace(TMP, LOCAL)
+          today = datetime.now(UTC).date()
+          rolled_over = end_date < today
 
-          # Expose outputs for the commit step
+          print(f"Season ends: {end_date}  |  Today (UTC): {today}  |  Days left: {days_remaining}")
+          print(f"Season rolled over: {rolled_over}")
+
+          # ── Write files from in-memory bytes ─────────────────────────────
+          if rolled_over:
+              archive = f"data/goseason{current_season}.xlsx"
+              if os.path.exists(LOCAL):
+                  print(f"Archiving current season as {archive}")
+                  os.replace(LOCAL, archive)
+              else:
+                  print(f"No existing file to archive; writing download as {archive}")
+                  with open(archive, "wb") as fh:
+                      fh.write(xlsx_bytes)
+                  shutil.copy(archive, LOCAL)
+          else:
+              with open(LOCAL, "wb") as fh:
+                  fh.write(xlsx_bytes)
+
+          # ── Expose step outputs for the commit step ───────────────────────
           with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
               fh.write(f"rolled_over={str(rolled_over).lower()}\n")
               fh.write(f"current_season={current_season}\n")
+              fh.write(f"days_remaining={days_remaining}\n")
 
           print("Done.")
           EOF
@@ -77,9 +138,9 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data/
           if [ "${{ steps.season_check.outputs.rolled_over }}" = "true" ]; then
-            MSG="Archive season ${{ steps.season_check.outputs.current_season }} and start new season (automated)"
+            MSG="Archive season ${{ steps.season_check.outputs.current_season }} and start new season."
           else
-            MSG="Update latest-season.xlsx (automated)"
+            MSG="Games updated, ${{ steps.season_check.outputs.days_remaining }} days left in the season."
           fi
           git diff --cached --quiet || git commit -m "$MSG"
           git push
