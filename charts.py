@@ -191,9 +191,13 @@ def make_rating_timeline_chart(
 
     def _collect_ratings(df: pd.DataFrame, player: str) -> list[dict]:
         rows = []
-        for col_role, col_rating in [("Pelaaja vahvempi", "Rating vahv"), ("Pelaaja heikompi", "Rating heik")]:
+        for col_role, col_rating, col_gor in [
+            ("Pelaaja vahvempi", "Rating vahv", "Gor Δ (stronger)"),
+            ("Pelaaja heikompi", "Rating heik", "Gor Δ (weaker)"),
+        ]:
             for _, row in df[df[col_role] == player].iterrows():
-                rows.append({"Date": row["Päivämäärä"], "Rating": row[col_rating], "Player": player})
+                post_game_rating = row[col_rating] + row[col_gor]
+                rows.append({"Date": row["Päivämäärä"], "Rating": post_game_rating, "Player": player})
         return rows
 
     ratings_p1 = _collect_ratings(input_df, input_player)
@@ -250,13 +254,13 @@ def make_rating_timeline_chart(
     # ── Latest-point highlight ──────────────────────────────────────
     latest_rows = []
     for player_name in combined["Player"].unique():
-        player_df = combined[combined["Player"] == player_name]
-        latest_rows.append(player_df.loc[player_df["Date"].idxmax()])
+        player_df = combined[combined["Player"] == player_name].sort_values("Date")
+        latest_rows.append(player_df.iloc[-1])
     latest_df = pd.DataFrame(latest_rows)
 
     latest_point = (
         alt.Chart(latest_df)
-        .mark_point(size=180, shape="diamond", filled=True, stroke="white", strokeWidth=1.5)
+        .mark_point(size=140, shape="diamond", filled=True, stroke="white", strokeWidth=1)
         .encode(
             x=alt.X("Date:T"),
             y=alt.Y("Rating:Q", scale=y_scale),

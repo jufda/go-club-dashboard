@@ -337,7 +337,7 @@ with st.expander("About the stats for the selected player", expanded=False):
 - **Games**: Wins and losses. ALL PLAYERS view uses the higher-rated player of each game.
 - **Wins**: Expected wins (from ratings + handicap) vs actual wins.
 - **Wins (ALL PLAYERS)**: Based on the stronger-rated player of each game.
-- **Player's rating timeline**: Club Gor rating over time. The diamond ◆ marks the latest game.
+- **Player's rating timeline**: Club gor rating over time. Each point shows the rating **after** the game.
 - **Game details**: All recorded club games with statistics, including rating change per game (Gor Δ).
 
 **ATTENTION**: 
