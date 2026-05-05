@@ -1,6 +1,8 @@
 import glob
 import os
 import warnings
+from datetime import date
+from typing import Any
 
 import altair as alt
 import pandas as pd
@@ -83,7 +85,7 @@ def _discover_season_files() -> list[tuple[int, str]]:
     Season number for latest-season is one above the highest archived season.
     """
     archived = sorted(glob.glob(os.path.join(DATA_DIR, "goseason[0-9]*.xlsx")))
-    season_nums = []
+    season_nums: list[tuple[int, str]] = []
     for path in archived:
         basename = os.path.basename(path)
         try:
@@ -111,12 +113,18 @@ def load_all_seasons(file_mtimes: dict[str, float]) -> pd.DataFrame:
     *file_mtimes* is passed purely so Streamlit re-runs this function whenever
     any data file changes on disk (mtime changes → cache miss).
     """
-    read_kwargs = dict(engine="openpyxl", sheet_name="Pelitulokset", skiprows=3)
-    frames = []
+    frames: list[pd.DataFrame] = []
+    pandas_api: Any = pd
 
     for season_num, path in _discover_season_files():
         try:
-            raw = pd.read_excel(io=path, usecols=_usecols_for(season_num), **read_kwargs)
+            raw = pandas_api.read_excel(
+                io=path,
+                usecols=_usecols_for(season_num),
+                engine="openpyxl",
+                sheet_name="Pelitulokset",
+                skiprows=3,
+            )
         except Exception as exc:
             st.error(f"Season {season_num}: could not load '{path}': {exc}")
             continue
@@ -156,39 +164,39 @@ with st.sidebar:
     st.title("Go club games dashboard")
 
     # ── Player selector ──────────────────────────────────────────
-    all_players = sorted(set(df[COL_STRONGER].unique()) | set(df[COL_WEAKER].unique()))
+    all_players: list[str] = sorted(set(df[COL_STRONGER].unique()) | set(df[COL_WEAKER].unique()))
     all_players.insert(0, "ALL PLAYERS")
-    selected_player = st.selectbox("Select player", all_players, index=0)
+    selected_player: str = st.selectbox("Select player", all_players, index=0)
 
     # ── Opponent selector (only players who faced selected_player) ─
     if selected_player != "ALL PLAYERS":
         player_rows = df[
             (df[COL_STRONGER] == selected_player) | (df[COL_WEAKER] == selected_player)
         ]
-        opponents = set()
+        opponents: set[str] = set()
         for _, row in player_rows.iterrows():
             opponents.add(
                 row[COL_WEAKER] if row[COL_STRONGER] == selected_player else row[COL_STRONGER]
             )
-        available_opponents = sorted(opponents)
+        available_opponents: list[str] = sorted(opponents)
     else:
         available_opponents = []
 
     available_opponents.insert(0, "NONE")
-    selected_opponent = st.selectbox("Select opponent", available_opponents, index=0)
+    selected_opponent: str = st.selectbox("Select opponent", available_opponents, index=0)
 
     # ── Date range ───────────────────────────────────────────────
-    all_dates = sorted(df[COL_DATE].dt.date.unique())
+    all_dates: list[date] = sorted(df[COL_DATE].dt.date.unique())
     min_date, max_date = all_dates[0], all_dates[-1]
 
-    from_date = st.selectbox(
+    from_date: date = st.selectbox(
         "From date",
         options=all_dates,
         index=0,
         format_func=lambda d: d.strftime("%Y-%m-%d"),
     )
     # Default "To date" to the end of the data, but allow independent selection.
-    to_date = st.selectbox(
+    to_date: date = st.selectbox(
         "To date",
         options=all_dates,
         index=len(all_dates) - 1,
@@ -198,7 +206,7 @@ with st.sidebar:
         st.warning("'To date' is before 'From date' — no data will be shown.")
 
     # ── Filter data ──────────────────────────────────────────────
-    filtered_df = df[
+    filtered_df: pd.DataFrame = df[
         (df[COL_DATE] >= pd.to_datetime(from_date)) & (df[COL_DATE] <= pd.to_datetime(to_date))
     ]
     if selected_player != "ALL PLAYERS":
@@ -213,17 +221,20 @@ with st.sidebar:
 
     # Per-player win probability
     if selected_player and selected_player != "ALL PLAYERS":
+        def _selected_player_win_probability(row: pd.Series) -> float:
+            if row[COL_STRONGER] == selected_player:
+                return float(row[COL_WIN_PROB])
+            return 1.0 - float(row[COL_WIN_PROB])
+
         filtered_df["Selected Player Win Probability"] = filtered_df.apply(
-            lambda r: (
-                r[COL_WIN_PROB] if r[COL_STRONGER] == selected_player else 1 - r[COL_WIN_PROB]
-            ),
+            _selected_player_win_probability,
             axis=1,
         )
     else:
         filtered_df["Selected Player Win Probability"] = None
 
     # ── Game details: optionally narrow to head-to-head ─────────
-    game_details_df = filtered_df.copy()
+    game_details_df: pd.DataFrame = filtered_df.copy()
     if selected_opponent != "NONE":
         game_details_df = game_details_df[
             (
@@ -249,7 +260,7 @@ with col[0]:
     if selected_player != "ALL PLAYERS":
         # Pass the full df (date-filtered only) so both players' complete rating
         # histories are shown, not just games they played against each other.
-        date_filtered_df = df[
+        date_filtered_df: pd.DataFrame = df[
             (df[COL_DATE] >= pd.to_datetime(from_date)) & (df[COL_DATE] <= pd.to_datetime(to_date))
         ]
         rating_chart = make_rating_timeline_chart(

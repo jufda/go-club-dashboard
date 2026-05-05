@@ -1,3 +1,5 @@
+from typing import Any, TypedDict
+
 import altair as alt
 import pandas as pd
 
@@ -13,6 +15,32 @@ EXPECTED_COLOR = "#00BBFF"
 SMALL_CHART_W = 150
 SMALL_CHART_H = 300
 LARGE_CHART_H = 300
+
+
+class RatingRecord(TypedDict):
+    Date: Any
+    Rating: float
+    Player: str
+
+
+def _opponent_from_row(row: pd.Series, input_player: str) -> str:
+    return (
+        str(row["Pelaaja heikompi"])
+        if row["Pelaaja vahvempi"] == input_player
+        else str(row["Pelaaja vahvempi"])
+    )
+
+
+def _weekday_color_from_row(row: pd.Series) -> str:
+    weekday = int(row["Weekday"])
+    game_count = int(row["Game Count"])
+    return _adjust_color_intensity(WEEKDAY_COLORS[weekday], game_count)
+
+
+def _expected_win_from_h2h_row(row: pd.Series, player1: str) -> float:
+    if row["Pelaaja vahvempi"] == player1:
+        return float(row["Vahvemman voiton todennäköisyys"])
+    return 1.0 - float(row["Vahvemman voiton todennäköisyys"])
 
 
 def _win_loss_bar(data: pd.DataFrame, title: str = "", width: int = SMALL_CHART_W) -> alt.Chart:
@@ -137,18 +165,13 @@ def make_performance_chart(input_df: pd.DataFrame, input_player: str) -> alt.Cha
     else:
         mask = (input_df["Pelaaja vahvempi"] == input_player) | (input_df["Pelaaja heikompi"] == input_player)
         filtered = input_df[mask].copy()
-        filtered["Opponent"] = filtered.apply(
-            lambda r: r["Pelaaja heikompi"] if r["Pelaaja vahvempi"] == input_player else r["Pelaaja vahvempi"],
-            axis=1,
-        )
+        filtered["Opponent"] = filtered.apply(_opponent_from_row, args=(input_player,), axis=1)
         grouped = filtered.groupby(["Päivämäärä", "Opponent"]).size().reset_index(name="Game Count")
         hover_field = "Opponent:N"
 
     grouped["Weekday"] = pd.to_datetime(grouped["Päivämäärä"]).dt.dayofweek
     grouped["Weekday Name"] = pd.to_datetime(grouped["Päivämäärä"]).dt.day_name()
-    grouped["Color"] = grouped.apply(
-        lambda r: _adjust_color_intensity(WEEKDAY_COLORS[r["Weekday"]], r["Game Count"]), axis=1
-    )
+    grouped["Color"] = grouped.apply(_weekday_color_from_row, axis=1)
 
     return (
         alt.Chart(grouped)
@@ -182,7 +205,7 @@ def _rating_to_rank_label(rating: float) -> str:
 
 def make_rating_timeline_chart(
     input_df: pd.DataFrame, input_player: str, selected_opponent: str = "NONE"
-) -> alt.Chart | None:
+) -> alt.Chart | alt.ConcatChart | alt.FacetChart | alt.HConcatChart | alt.LayerChart | alt.RepeatChart | alt.VConcatChart | None:
     """Line + point chart of rating over time, with rank labels on the y-axis.
 
     Draws an extra highlighted point at the most recent game to make the
@@ -191,15 +214,16 @@ def make_rating_timeline_chart(
     if input_player == "ALL PLAYERS":
         return None
 
-    def _collect_ratings(df: pd.DataFrame, player: str) -> list[dict]:
-        rows = []
+    def _collect_ratings(df: pd.DataFrame, player: str) -> list[RatingRecord]:
+        rows: list[RatingRecord] = []
         for col_role, col_rating, col_gor in [
             ("Pelaaja vahvempi", "Rating vahv", "Gor Δ (stronger)"),
             ("Pelaaja heikompi", "Rating heik", "Gor Δ (weaker)"),
         ]:
             for _, row in df[df[col_role] == player].iterrows():
                 post_game_rating = row[col_rating] + row[col_gor]
-                rows.append({"Date": row["Päivämäärä"], "Rating": post_game_rating, "Player": player})
+                rows.append({"Date": row["Päivämäärä"], "Rating": float(post_game_rating), "Player": player})
+        rows.sort(key=lambda record: record["Date"])
         return rows
 
     ratings_p1 = _collect_ratings(input_df, input_player)
@@ -208,13 +232,13 @@ def make_rating_timeline_chart(
     if not ratings_p1:
         return None
 
-    df_p1 = pd.DataFrame(ratings_p1).sort_values("Date")
+    df_p1: pd.DataFrame = pd.DataFrame(ratings_p1).sort_values("Date")
     all_frames = [df_p1]
     if ratings_p2:
-        df_p2 = pd.DataFrame(ratings_p2).sort_values("Date")
+        df_p2: pd.DataFrame = pd.DataFrame(ratings_p2).sort_values("Date")
         all_frames.append(df_p2)
 
-    combined = pd.concat(all_frames, ignore_index=True)
+    combined: pd.DataFrame = pd.concat(all_frames, ignore_index=True)
 
     # Y-axis range with padding
     r_min, r_max = combined["Rating"].min(), combined["Rating"].max()
@@ -254,11 +278,10 @@ def make_rating_timeline_chart(
     )
 
     # ── Latest-point highlight ──────────────────────────────────────
-    latest_rows = []
-    for player_name in combined["Player"].unique():
-        player_df = combined[combined["Player"] == player_name].sort_values("Date")
-        latest_rows.append(player_df.iloc[-1])
-    latest_df = pd.DataFrame(latest_rows)
+    latest_rows: list[RatingRecord] = [ratings_p1[-1]]
+    if ratings_p2:
+        latest_rows.append(ratings_p2[-1])
+    latest_df: pd.DataFrame = pd.DataFrame(latest_rows)
 
     latest_point = (
         alt.Chart(latest_df)
@@ -346,12 +369,7 @@ def make_head_to_head_win_loss_chart(input_df: pd.DataFrame, player1: str, playe
 def make_head_to_head_expected_vs_actual_chart(input_df: pd.DataFrame, player1: str, player2: str) -> alt.Chart:
     """Bar chart comparing expected vs actual wins for player1 vs player2."""
     h2h = _filter_h2h(input_df, player1, player2)
-    expected_wins = h2h.apply(
-        lambda r: r["Vahvemman voiton todennäköisyys"]
-        if r["Pelaaja vahvempi"] == player1
-        else 1 - r["Vahvemman voiton todennäköisyys"],
-        axis=1,
-    ).sum()
+    expected_wins = h2h.apply(_expected_win_from_h2h_row, args=(player1,), axis=1).sum()
     actual_wins = h2h[h2h["Voittaja"] == player1].shape[0]
     data = pd.DataFrame({"Type": ["Expected", "Actual"], "Count": [expected_wins, int(actual_wins)]})
     return _expected_vs_actual_bar(data, title=f"Wins vs {player2}")
