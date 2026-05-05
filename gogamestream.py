@@ -7,12 +7,12 @@ import pandas as pd
 import streamlit as st
 
 from charts import (
+    make_expected_vs_actual_chart,
+    make_head_to_head_expected_vs_actual_chart,
+    make_head_to_head_win_loss_chart,
     make_performance_chart,
     make_rating_timeline_chart,
     make_win_loss_chart,
-    make_expected_vs_actual_chart,
-    make_head_to_head_win_loss_chart,
-    make_head_to_head_expected_vs_actual_chart,
 )
 
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
@@ -22,7 +22,7 @@ warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 # CONFIGURATION
 # ══════════════════════════════════════════════════════════════════
 
-DATA_DIR    = "data"
+DATA_DIR = "data"
 LATEST_FILE = os.path.join(DATA_DIR, "latest-season.xlsx")
 
 # Columns to read from the Excel sheets.
@@ -42,13 +42,20 @@ COL_RATING_S = "Rating vahv"
 COL_RATING_W = "Rating heik"
 COL_WIN_PROB = "Vahvemman voiton todennäköisyys"
 
-COL_GOR_S    = "Gor Δ (stronger)"
-COL_GOR_W    = "Gor Δ (weaker)"
+COL_GOR_S = "Gor Δ (stronger)"
+COL_GOR_W = "Gor Δ (weaker)"
 
 CANONICAL_COLS = [
-    COL_STRONGER, COL_WEAKER, COL_HANDICAP, COL_WINNER,
-    COL_DATE, COL_RATING_S, COL_RATING_W, COL_WIN_PROB,
-    COL_GOR_S, COL_GOR_W,
+    COL_STRONGER,
+    COL_WEAKER,
+    COL_HANDICAP,
+    COL_WINNER,
+    COL_DATE,
+    COL_RATING_S,
+    COL_RATING_W,
+    COL_WIN_PROB,
+    COL_GOR_S,
+    COL_GOR_W,
 ]
 
 # ══════════════════════════════════════════════════════════════════
@@ -68,15 +75,14 @@ alt.theme.enable("dark")
 # Data loading  (downloading is handled by update-data.yml)
 # ══════════════════════════════════════════════════════════════════
 
+
 def _discover_season_files() -> list[tuple[int, str]]:
     """Return (season_number, path) pairs for every season file, sorted by number.
 
     Scans DATA_DIR for goseason{N}.xlsx files plus latest-season.xlsx.
     Season number for latest-season is one above the highest archived season.
     """
-    archived = sorted(
-        glob.glob(os.path.join(DATA_DIR, "goseason[0-9]*.xlsx"))
-    )
+    archived = sorted(glob.glob(os.path.join(DATA_DIR, "goseason[0-9]*.xlsx")))
     season_nums = []
     for path in archived:
         basename = os.path.basename(path)
@@ -116,6 +122,9 @@ def load_all_seasons(file_mtimes: dict[str, float]) -> pd.DataFrame:
             continue
 
         raw = raw.set_axis(CANONICAL_COLS, axis=1)
+        # Coerce win-probability to float so Excel error strings (e.g. "#REF!")
+        # become NaN and are dropped along with genuinely empty rows below.
+        raw[COL_WIN_PROB] = pd.to_numeric(raw[COL_WIN_PROB], errors="coerce")
         raw.dropna(axis=0, inplace=True)
         raw[COL_DATE] = pd.to_datetime(raw[COL_DATE], format="mixed", dayfirst=True)
         frames.append(raw)
@@ -132,9 +141,7 @@ def load_all_seasons(file_mtimes: dict[str, float]) -> pd.DataFrame:
 def _current_mtimes() -> dict[str, float]:
     """Snapshot the mtime of every season file so cache can detect changes."""
     return {
-        path: os.path.getmtime(path)
-        for _, path in _discover_season_files()
-        if os.path.exists(path)
+        path: os.path.getmtime(path) for _, path in _discover_season_files() if os.path.exists(path)
     }
 
 
@@ -155,10 +162,14 @@ with st.sidebar:
 
     # ── Opponent selector (only players who faced selected_player) ─
     if selected_player != "ALL PLAYERS":
-        player_rows = df[(df[COL_STRONGER] == selected_player) | (df[COL_WEAKER] == selected_player)]
+        player_rows = df[
+            (df[COL_STRONGER] == selected_player) | (df[COL_WEAKER] == selected_player)
+        ]
         opponents = set()
         for _, row in player_rows.iterrows():
-            opponents.add(row[COL_WEAKER] if row[COL_STRONGER] == selected_player else row[COL_STRONGER])
+            opponents.add(
+                row[COL_WEAKER] if row[COL_STRONGER] == selected_player else row[COL_STRONGER]
+            )
         available_opponents = sorted(opponents)
     else:
         available_opponents = []
@@ -188,8 +199,7 @@ with st.sidebar:
 
     # ── Filter data ──────────────────────────────────────────────
     filtered_df = df[
-        (df[COL_DATE] >= pd.to_datetime(from_date))
-        & (df[COL_DATE] <= pd.to_datetime(to_date))
+        (df[COL_DATE] >= pd.to_datetime(from_date)) & (df[COL_DATE] <= pd.to_datetime(to_date))
     ]
     if selected_player != "ALL PLAYERS":
         filtered_df = filtered_df[
@@ -204,9 +214,9 @@ with st.sidebar:
     # Per-player win probability
     if selected_player and selected_player != "ALL PLAYERS":
         filtered_df["Selected Player Win Probability"] = filtered_df.apply(
-            lambda r: r[COL_WIN_PROB]
-            if r[COL_STRONGER] == selected_player
-            else 1 - r[COL_WIN_PROB],
+            lambda r: (
+                r[COL_WIN_PROB] if r[COL_STRONGER] == selected_player else 1 - r[COL_WIN_PROB]
+            ),
             axis=1,
         )
     else:
@@ -216,8 +226,14 @@ with st.sidebar:
     game_details_df = filtered_df.copy()
     if selected_opponent != "NONE":
         game_details_df = game_details_df[
-            ((game_details_df[COL_STRONGER] == selected_player) & (game_details_df[COL_WEAKER] == selected_opponent))
-            | ((game_details_df[COL_STRONGER] == selected_opponent) & (game_details_df[COL_WEAKER] == selected_player))
+            (
+                (game_details_df[COL_STRONGER] == selected_player)
+                & (game_details_df[COL_WEAKER] == selected_opponent)
+            )
+            | (
+                (game_details_df[COL_STRONGER] == selected_opponent)
+                & (game_details_df[COL_WEAKER] == selected_player)
+            )
         ]
 
 
@@ -228,37 +244,40 @@ with st.sidebar:
 col = st.columns((8, 1.5, 1.5), gap="medium")
 
 with col[0]:
-    st.altair_chart(make_performance_chart(filtered_df, selected_player), use_container_width=True)
+    st.altair_chart(make_performance_chart(filtered_df, selected_player), width="stretch")
 
     if selected_player != "ALL PLAYERS":
         # Pass the full df (date-filtered only) so both players' complete rating
         # histories are shown, not just games they played against each other.
         date_filtered_df = df[
-            (df[COL_DATE] >= pd.to_datetime(from_date))
-            & (df[COL_DATE] <= pd.to_datetime(to_date))
+            (df[COL_DATE] >= pd.to_datetime(from_date)) & (df[COL_DATE] <= pd.to_datetime(to_date))
         ]
-        rating_chart = make_rating_timeline_chart(date_filtered_df, selected_player, selected_opponent)
+        rating_chart = make_rating_timeline_chart(
+            date_filtered_df, selected_player, selected_opponent
+        )
         if rating_chart:
-            st.altair_chart(rating_chart, use_container_width=True)
+            st.altair_chart(rating_chart, width="stretch")
 
 with col[1]:
     st.markdown("#### All games")
-    st.altair_chart(make_win_loss_chart(filtered_df, selected_player), use_container_width=True)
+    st.altair_chart(make_win_loss_chart(filtered_df, selected_player), width="stretch")
 
     if selected_player != "ALL PLAYERS" and selected_opponent != "NONE":
         st.altair_chart(
             make_head_to_head_win_loss_chart(filtered_df, selected_player, selected_opponent),
-            use_container_width=True,
+            width="stretch",
         )
 
 with col[2]:
     st.markdown("#### All wins")
-    st.altair_chart(make_expected_vs_actual_chart(filtered_df, selected_player), use_container_width=True)
+    st.altair_chart(make_expected_vs_actual_chart(filtered_df, selected_player), width="stretch")
 
     if selected_player != "ALL PLAYERS" and selected_opponent != "NONE":
         st.altair_chart(
-            make_head_to_head_expected_vs_actual_chart(filtered_df, selected_player, selected_opponent),
-            use_container_width=True,
+            make_head_to_head_expected_vs_actual_chart(
+                filtered_df, selected_player, selected_opponent
+            ),
+            width="stretch",
         )
 
 
@@ -273,10 +292,17 @@ with st.container():
 
     # Column order: Date | Weekday | Rating(s) | GorΔ(s) | Player(s) | Win% | Rating(w) | GorΔ(w) | Player(w) | Handicap | Winner
     column_order = (
-        COL_DATE, "Weekday",
-        COL_RATING_S, COL_GOR_S, COL_STRONGER, COL_WIN_PROB,
-        COL_RATING_W, COL_GOR_W, COL_WEAKER,
-        COL_HANDICAP, COL_WINNER,
+        COL_DATE,
+        "Weekday",
+        COL_RATING_S,
+        COL_GOR_S,
+        COL_STRONGER,
+        COL_WIN_PROB,
+        COL_RATING_W,
+        COL_GOR_W,
+        COL_WEAKER,
+        COL_HANDICAP,
+        COL_WINNER,
     )
 
     st.dataframe(
@@ -340,7 +366,7 @@ with st.expander("About the stats for the selected player", expanded=False):
 - **Player's rating timeline**: Club gor rating over time. Each point shows the rating **after** the game.
 - **Game details**: All recorded club games with statistics, including rating change per game (Gor Δ).
 
-**ATTENTION**: 
+**ATTENTION**:
 
 **New games after the season end date should be added to the new season's spreadsheet with the same URL as the old season (old seasons should be moved and archived.**
 """)

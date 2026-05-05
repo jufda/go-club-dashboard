@@ -86,10 +86,12 @@ def make_win_loss_chart(input_df: pd.DataFrame, input_player: str) -> alt.Chart:
 def make_expected_vs_actual_chart(filtered_df: pd.DataFrame, selected_player: str) -> alt.Chart:
     """Bar chart comparing expected win probability vs actual wins."""
     if selected_player == "ALL PLAYERS":
-        expected_wins = filtered_df["Vahvemman voiton todennäköisyys"].sum()
+        win_prob = pd.to_numeric(filtered_df["Vahvemman voiton todennäköisyys"], errors="coerce")
+        expected_wins = win_prob.sum()
         actual_wins = filtered_df[filtered_df["Voittaja"] == filtered_df["Pelaaja vahvempi"]].shape[0]
     else:
-        expected_wins = filtered_df["Selected Player Win Probability"].sum()
+        win_prob = pd.to_numeric(filtered_df["Selected Player Win Probability"], errors="coerce")
+        expected_wins = win_prob.sum()
         actual_wins = filtered_df[filtered_df["Voittaja"] == selected_player].shape[0]
 
     data = pd.DataFrame({"Type": ["Expected", "Actual"], "Count": [expected_wins, int(actual_wins)]})
