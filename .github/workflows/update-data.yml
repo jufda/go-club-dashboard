@@ -108,6 +108,13 @@ jobs:
           print(f"Season ends: {end_date}  |  Today (UTC): {today}  |  Days left: {days_remaining}")
           print(f"Season rolled over: {rolled_over}")
 
+          # ── Check file size difference ──────────────────────────────────
+          old_size = os.path.getsize(LOCAL) if os.path.exists(LOCAL) else 0
+          new_size = len(xlsx_bytes)
+          size_diff = new_size - old_size
+          
+          print(f"File size: old={old_size} bytes, new={new_size} bytes, diff={size_diff:+d} bytes")
+
           # ── Write files from in-memory bytes ─────────────────────────────
           if rolled_over:
               archive = f"data/goseason{current_season}.xlsx"
@@ -123,16 +130,22 @@ jobs:
               with open(LOCAL, "wb") as fh:
                   fh.write(xlsx_bytes)
 
+          # Determine if change is significant (>= 10 bytes or season rollover)
+          file_changed = abs(size_diff) >= 10 or rolled_over
+
           # ── Expose step outputs for the commit step ───────────────────────
           with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
               fh.write(f"rolled_over={str(rolled_over).lower()}\n")
               fh.write(f"current_season={current_season}\n")
               fh.write(f"days_remaining={days_remaining}\n")
+              fh.write(f"file_changed={str(file_changed).lower()}\n")
+              fh.write(f"size_diff={size_diff}\n")
 
           print("Done.")
           EOF
 
       - name: Commit and push if changed
+        if: ${{ steps.season_check.outputs.file_changed == 'true' }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -140,7 +153,7 @@ jobs:
           if [ "${{ steps.season_check.outputs.rolled_over }}" = "true" ]; then
             MSG="Archive season ${{ steps.season_check.outputs.current_season }} and start new season."
           else
-            MSG="Games updated, ${{ steps.season_check.outputs.days_remaining }} days left in the season."
+            MSG="Games updated (${{ steps.season_check.outputs.size_diff }} bytes), ${{ steps.season_check.outputs.days_remaining }} days left in the season."
           fi
           git diff --cached --quiet || git commit -m "$MSG"
           git push
