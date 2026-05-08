@@ -16,6 +16,7 @@ from charts import (
     make_rating_timeline_chart,
     make_win_loss_chart,
 )
+from go_proverbs import random_proverb
 
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
@@ -32,14 +33,14 @@ LATEST_FILE = os.path.join(DATA_DIR, "latest-season.xlsx")
 # Base cols: players, handicap, winner, date, ratings, win probability.
 # Z,AE (S1) / Y,AD (S2+): Pelaaja 1 & 2 rating muutos (Gor change).
 USECOLS_S1 = "B:E,G,P,Q,W,Z,AE"
-USECOLS    = "B:F,O,P,V,Y,AD"
+USECOLS = "B:F,O,P,V,Y,AD"
 
 # Canonical column names used throughout the app
 COL_STRONGER = "Pelaaja vahvempi"
-COL_WEAKER   = "Pelaaja heikompi"
+COL_WEAKER = "Pelaaja heikompi"
 COL_HANDICAP = "Tasoituskivet"
-COL_WINNER   = "Voittaja"
-COL_DATE     = "Päivämäärä"
+COL_WINNER = "Voittaja"
+COL_DATE = "Päivämäärä"
 COL_RATING_S = "Rating vahv"
 COL_RATING_W = "Rating heik"
 COL_WIN_PROB = "Vahvemman voiton todennäköisyys"
@@ -221,6 +222,7 @@ with st.sidebar:
 
     # Per-player win probability
     if selected_player and selected_player != "ALL PLAYERS":
+
         def _selected_player_win_probability(row: pd.Series) -> float:
             if row[COL_STRONGER] == selected_player:
                 return float(row[COL_WIN_PROB])
@@ -246,6 +248,25 @@ with st.sidebar:
                 & (game_details_df[COL_WEAKER] == selected_player)
             )
         ]
+
+    # ── Go proverb of the session ────────────────────────────────
+    st.divider()
+    st.markdown(
+        f"""
+        <div style="
+            font-family: 'Georgia', 'Times New Roman', serif;
+            font-style: italic;
+            font-size: 1.00rem;
+            line-height: 1.5;
+            color: #cccccc;
+            text-align: left;
+            padding: 0.5rem 0.25rem;
+        ">
+            &nbsp;{random_proverb()}&nbsp;
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -367,12 +388,12 @@ with st.container():
 # Bottom info
 # ══════════════════════════════════════════════════════════════════
 
-with st.expander("About the stats for the selected player", expanded=False):
+with st.expander("About the statistical information above", expanded=False):
     st.write("""
 - **Player's club games timeline**: Activity in club games over time. Bars are coloured by weekday.
 - **Club games timeline (ALL PLAYERS)**: Counts both players per game (total = games × 2).
 - **Games**: Wins and losses. ALL PLAYERS view uses the higher-rated player of each game.
-- **Wins**: Expected wins (from ratings + handicap) vs actual wins.
+- **Wins**: Expected wins (based on ratings and handicap) vs actual wins.
 - **Wins (ALL PLAYERS)**: Based on the stronger-rated player of each game.
 - **Player's rating timeline**: Club gor rating over time. Each point shows the rating **after** the game.
 - **Game details**: All recorded club games with statistics, including rating change per game (Gor Δ).
@@ -382,57 +403,66 @@ with st.expander("About the stats for the selected player", expanded=False):
 **New games after the season end date should be added to the new season's spreadsheet with the same URL as the old season (old seasons should be moved and archived.**
 """)
 
+with st.expander("Feature ideas", expanded=False):
+    st.write("""
+- **Wall of Fame**: Show some achievements in the left sidebar.
+- **Visual look**: Go themed art, board, stones, cups.
+- **Handicap analysis**: How players perform with handicap stones.
+- **Confidence intervals**: Error margins for expected wins.
+- **Translation**: Finnish / English toggle.
+- **Player selection by on-click**: from game details table.
+- **Accessibility testing**: Colour-blindness, contrast, alt-texts, keyboard navigation.
+- **Head-to-head summary stats**: Win %, total/average Gor change, handicap breakdown.
+- **Visualization of the games spread between players**: to left sidebar.
+- **Filter out players**: with <=3 games total.
+- **Mobile optimized view**.
+""")
+
 with st.expander("Update history", expanded=False):
     st.write("""
-#### Updates 28.4.2026:
+##### Updates 8.5.2026:
+1. **Go proverbs**: Shows classical go proverbs in the left sidebar.
+2. **Malformed data handling**: Mistakes in source data don't cause errors anymore.
+3. **Expandable bottom sections**: arranged clearly.
+
+##### Updates 28.4.2026:
 1. **Gor change column**: Shows rating change per game in the game details table.
 2. **Latest gor**: The rating graph now draws a highlighted diamond at the most recent game.
 3. **Hover tooltips**: All charts show simple info.
 4. **Seasons change automatically** when the season's spreadsheet date comes up.
 5. **Code clarity**: Shared chart helpers, named constants for columns, cleaner separation of concerns.
 
-#### Updates 21.9.2025:
+##### Updates 21.9.2025:
 1. **4th season added**: New club game season began on September 8th.
 2. **Updated about section**: To include all parts of the dashboard.
 3. **New colours based on weekdays**: Shows each weekday as a specific colour.
 
-#### Updates 26.5.2025:
+##### Updates 26.5.2025:
 1. **Opponent selection**: Shows only the games between players.
 2. **Performance optimization**: Caches the data.
 3. **Face-to-face comparison**: Compare the rating timelines of two players.
 4. **Face-to-face wins**: Bar charts for head-to-head comparison.
 
-#### Updates 23.5.2025:
+##### Updates 23.5.2025:
 1. **Rating graph**: shows player's rating over time.
 2. **Download optimization**: checks if the local file is older than 3 days before downloading.
 3. **Included all players to timeline**: not just half of them.
 4. **Ordered game details**: newest first.
 5. **Decimal formatting**: for expected wins and rating.
 
-#### Updates 15.5.2025:
+##### Updates 15.5.2025:
 1. **Timeline update**: shows opponents.
 2. **Added expected wins**: and comparison to actual wins.
 3. **Rearranged game details**: win probability visualized and column order improved.
 4. **Added statistics for ALL PLAYERS**.
 
-#### Updates 14.5.2025:
+##### Updates 14.5.2025:
 1. **Added third season games**.
 2. **Included more data**: player's ratings, expected win %.
 3. **Updated timeline**: Game colour by winner, barchart based on played game dates.
 
-#### Prototype 17.2.2025:
+##### Prototype 17.2.2025:
 1. **Data Loading from online spreadsheets**.
 2. **Sidebar**: player and date range filter.
 3. **Timeline**, **Win/Loss Ratio**, **Recent games**.
-
-#### Next steps:
-- **Handicap analysis**: How players perform with handicap stones.
-- **Confidence intervals**: Error margins based on games played so far.
-- **Translation**: Finnish / English toggle.
-- **Player selection from game details table**.
-- **All players' timeline**: Player colour based on amount of games.
-- **Accessibility testing**: Colour-blindness, contrast, alt-texts, keyboard navigation.
-- **Visual look**: Go art, board, stones, cups.
-- **Opponent rating graph**: Show both players' full history when opponent is selected.
-- **Head-to-head summary stats**: Win %, average Gor change, handicap breakdown.
 """)
