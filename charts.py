@@ -101,8 +101,8 @@ def make_win_loss_chart(input_df: pd.DataFrame, input_player: str) -> alt.Chart:
 
     total = (
         input_df[
-            (input_df["Pelaaja vahvempi"] == input_player)
-            | (input_df["Pelaaja heikompi"] == input_player)
+            (input_df["Pelaaja vahvempi"] == input_player) |
+            (input_df["Pelaaja heikompi"] == input_player)
         ].shape[0]
         if input_player != "ALL PLAYERS"
         else input_df.shape[0]
@@ -122,9 +122,7 @@ def make_expected_vs_actual_chart(filtered_df: pd.DataFrame, selected_player: st
     if selected_player == "ALL PLAYERS":
         win_prob = pd.to_numeric(filtered_df["Vahvemman voiton todennäköisyys"], errors="coerce")
         expected_wins = win_prob.sum()
-        actual_wins = filtered_df[filtered_df["Voittaja"] == filtered_df["Pelaaja vahvempi"]].shape[
-            0
-        ]
+        actual_wins = filtered_df[filtered_df["Voittaja"] == filtered_df["Pelaaja vahvempi"]].shape[0]
     else:
         win_prob = pd.to_numeric(filtered_df["Selected Player Win Probability"], errors="coerce")
         expected_wins = win_prob.sum()
@@ -174,8 +172,7 @@ def make_performance_chart(input_df: pd.DataFrame, input_player: str) -> alt.Cha
         hover_field = "Player:N"
     else:
         mask = (input_df["Pelaaja vahvempi"] == input_player) | (
-            input_df["Pelaaja heikompi"] == input_player
-        )
+                input_df["Pelaaja heikompi"] == input_player)
         filtered = input_df[mask].copy()
         filtered["Opponent"] = filtered.apply(_opponent_from_row, args=(input_player,), axis=1)
         grouped = filtered.groupby(["Päivämäärä", "Opponent"]).size().reset_index(name="Game Count")
@@ -386,8 +383,8 @@ def make_rating_timeline_chart(
 def _filter_h2h(input_df: pd.DataFrame, player1: str, player2: str) -> pd.DataFrame:
     """Return only rows where player1 and player2 faced each other."""
     return input_df[
-        ((input_df["Pelaaja vahvempi"] == player1) & (input_df["Pelaaja heikompi"] == player2))
-        | ((input_df["Pelaaja vahvempi"] == player2) & (input_df["Pelaaja heikompi"] == player1))
+        ((input_df["Pelaaja vahvempi"] == player1) & (input_df["Pelaaja heikompi"] == player2)) |
+        ((input_df["Pelaaja vahvempi"] == player2) & (input_df["Pelaaja heikompi"] == player1))
     ]
 
 

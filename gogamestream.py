@@ -322,7 +322,8 @@ with st.container():
 
     sorted_df = game_details_df.sort_values(by=COL_DATE, ascending=False).copy()
 
-    # Column order: Date | Weekday | Rating(s) | GorΔ(s) | Player(s) | Win% | Rating(w) | GorΔ(w) | Player(w) | Handicap | Winner
+    # Column order: 
+    # Date | Weekday | Rating(s) | GorΔ(s) | Player(s) | Win% | Rating(w) | GorΔ(w) | Player(w) | Handicap | Winner
     column_order = (
         COL_DATE,
         "Weekday",
@@ -361,7 +362,8 @@ with st.container():
             COL_WIN_PROB: st.column_config.ProgressColumn(
                 "Stronger player's win %",
                 format="%.2f",
-                help="Win probability for the stronger-rated player, based on rating difference and handicap.",
+                help="Win probability for the stronger-rated player, " \
+                "based on rating difference and handicap.",
             ),
             COL_RATING_W: st.column_config.NumberColumn(
                 "Rating (weaker)",
